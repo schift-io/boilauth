@@ -53,7 +53,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --disable-warning=ExperimentalWarning --import tsx --test test/*.test.ts"
   },
-  "private": true,
   "dependencies": {
     "@clack/prompts": "^1.8.1",
     "@node-rs/argon2": "^2.2.1",

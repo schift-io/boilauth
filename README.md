@@ -58,7 +58,7 @@ they set the defaults of the policy questions, which are all still asked.
 | 0 | `situation.currentSignIn` | email_password, magic_link, google, github, apple, kakao, naver (**email_password**) | `signIn.*`: keep today's methods |
 | 0 | `migration.sources` | supabase, firebase, auth0, generic (**none**; asked with email + password) | which importers and tests are generated |
 | 0 | `situation.sourceVerifiedEmail` | **yes** / no | no: `email.verification` = optional |
-| 0 | `situation.audience` | **b2c** / b2b / internal | b2b: organizations; internal: admin + TOTP for admins; b2c: Kakao and Naver listed first |
+| 0 | `situation.audience` | **b2c** / b2b / internal | b2b: organizations; internal: admin + TOTP for admins; b2c: user + admin |
 
 | # | Policy key | Choices |
 |---|---|---|

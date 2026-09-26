@@ -123,10 +123,12 @@ test("audience sets roles and MFA defaults; an explicit answer wins", async () =
   assert.equal(normalizeAnswers({ situation: { audience: "b2b" }, roles: { mode: "none" } }).roles.mode, "none");
 });
 
-test("consumer apps see Kakao and Naver first; business apps keep the default order", async () => {
-  const b2c = (await answer({})).offered["signIn.oauth"];
-  assert.deepEqual(b2c.slice(0, 2), ["kakao", "naver"]);
-  assert.deepEqual((await answer({ "situation.audience": "b2b" })).offered["signIn.oauth"].slice(0, 2), ["google", "github"]);
+test("Kakao and Naver are extras: last in the OAuth list, never on by default", async () => {
+  for (const audience of ["b2c", "b2b", "internal"]) {
+    const { a, offered } = await answer({ "situation.audience": audience });
+    assert.deepEqual(offered["signIn.oauth"].slice(-2), ["kakao", "naver"], audience);
+    assert.deepEqual(a.signIn.oauth, [], audience);
+  }
 });
 
 test("--yes takes the defaults from the doc", async () => {

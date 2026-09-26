@@ -25,7 +25,7 @@ which are still asked:
 | existing users + how they sign in | `signIn.emailPassword`, `signIn.magicLink`, `signIn.oauth` = the methods they use today |
 | existing users + email + password | `migration.sources` is asked here ("where are they now") |
 | existing users + old system did not verify | `email.verification` = `optional`, so imported users are not met by a 403 on their next sign-in |
-| `b2c` | `roles.mode` = `admin`; Kakao and Naver listed first in OAuth choices |
+| `b2c` | `roles.mode` = `admin` |
 | `b2b` | `roles.mode` = `organizations` (`roles.orgCreation` = `any_user`) |
 | `internal` | `roles.mode` = `admin`, `mfa.mode` = `totp_required_admin` |
 

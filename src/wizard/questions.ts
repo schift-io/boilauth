@@ -20,8 +20,6 @@ export interface Question {
   hideOption?: (a: Answers, value: string) => boolean;
   /** For text answers stored as a list. */
   parse?: (raw: string) => unknown;
-  /** Reorders options for this run (e.g. Kakao and Naver first for a consumer app). */
-  sortOptions?: (a: Answers, values: string[]) => string[];
 }
 
 const pw = (a: Answers) => a.signIn.emailPassword;
@@ -31,11 +29,9 @@ const OAUTH_OPTIONS = [
   { value: "google", label: "Google" },
   { value: "github", label: "GitHub" },
   { value: "apple", label: "Apple" },
-  { value: "kakao", label: "Kakao" },
-  { value: "naver", label: "Naver" },
+  { value: "kakao", label: "Kakao", hint: "extra" },
+  { value: "naver", label: "Naver", hint: "extra" },
 ];
-const KOREAN_FIRST = (a: Answers, v: string[]) =>
-  a.situation.audience === "b2c" ? [...v.filter((x) => x === "kakao" || x === "naver"), ...v.filter((x) => x !== "kakao" && x !== "naver")] : v;
 
 export const QUESTIONS: Question[] = [
   // 0. Situation. The answers set the defaults of everything below.
@@ -43,7 +39,6 @@ export const QUESTIONS: Question[] = [
   {
     key: "situation.currentSignIn", group: "0. Your situation", type: "multiselect", when: existing,
     message: "How do they sign in today? (kept as your sign-in methods)",
-    sortOptions: KOREAN_FIRST,
     options: [
       { value: "email_password", label: "Email + password" },
       { value: "magic_link", label: "Magic link by email" },
@@ -73,7 +68,7 @@ export const QUESTIONS: Question[] = [
     key: "situation.audience", group: "0. Your situation", type: "select",
     message: "Who is the app for?",
     options: [
-      { value: "b2c", label: "Consumers", hint: "user + admin, Kakao and Naver listed first" },
+      { value: "b2c", label: "Consumers", hint: "user + admin" },
       { value: "b2b", label: "Businesses with teams", hint: "organizations" },
       { value: "internal", label: "Internal tool", hint: "user + admin, TOTP required for admins" },
     ],
@@ -93,7 +88,6 @@ export const QUESTIONS: Question[] = [
   {
     key: "signIn.oauth", group: "B. Sign-in", type: "multiselect",
     message: "OAuth providers (space to toggle, none is fine)",
-    sortOptions: KOREAN_FIRST,
     options: OAUTH_OPTIONS,
   },
   // C. Migration

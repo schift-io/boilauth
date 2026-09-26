@@ -27,12 +27,9 @@ export function parseOverride(raw: string): [string, unknown] {
   return [key, value];
 }
 
-/** Options shown for `q` given the answers so far: hidden ones dropped, then reordered. */
+/** Options shown for `q` given the answers so far. */
 export function offeredOptions(q: Question, a: Answers): NonNullable<Question["options"]> {
-  const shown = (q.options ?? []).filter((o) => !q.hideOption?.(a, o.value));
-  if (!q.sortOptions) return shown;
-  const order = q.sortOptions(a, shown.map((o) => o.value));
-  return order.map((v) => shown.find((o) => o.value === v)!);
+  return (q.options ?? []).filter((o) => !q.hideOption?.(a, o.value));
 }
 
 async function clackAsk(q: Question, current: unknown, answers: Answers): Promise<unknown> {

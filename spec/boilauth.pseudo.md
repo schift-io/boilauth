@@ -166,7 +166,7 @@ existingUsers and sourceVerifiedEmail = no -> email.verification = optional
 Import keeps each row's own verified flag either way; merges still need verified on both sides [M1].
 
 ## [W2] Situation: audience
-b2c -> roles.mode admin, OAuth options list kakao, naver first (none preselected)
+b2c -> roles.mode admin (kakao, naver are extras: listed last, never preselected)
 b2b -> roles.mode organizations (orgCreation any_user)
 internal -> roles.mode admin, mfa.mode totp_required_admin
 init --yes = no existing users + b2c = the plain defaults.
