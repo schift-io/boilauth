@@ -1,0 +1,7 @@
+test("security notices: a password change is mailed to the user", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const { email, jar } = await h.newUser(auth, "notice");
+  const r = await h.call(auth, "/change-password", { body: { currentPassword: h.PW, newPassword: h.PW + "-new" }, jar });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.ok(h.outbox.some((m) => m.to === email && (m as { kind?: string }).kind === "security.password_changed"));
+});

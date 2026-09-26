@@ -48,6 +48,8 @@ export interface Answers {
   session: { days: number; absoluteDays: number; revokeOnPasswordChange: boolean; devices: "multi" | "single"; bearer: boolean };
   mfa: { mode: "off" | "totp_optional" | "totp_required_admin"; backupCodes: number; emailOtp: boolean };
   roles: { mode: "none" | "admin" | "custom" | "organizations"; custom: string[]; orgCreation: "any_user" | "admin_only"; hideAdmin: boolean };
+  /** Security notices by email (audit F9, ASVS 2.2.3). */
+  notify: { securityChanges: boolean; newDevice: boolean };
   deletion: {
     mode: "hard" | "soft";
     export: boolean;
@@ -73,6 +75,7 @@ export const DEFAULT_ANSWERS: Answers = {
   session: { days: 7, absoluteDays: 30, revokeOnPasswordChange: true, devices: "multi", bearer: false },
   mfa: { mode: "off", backupCodes: 10, emailOtp: false },
   roles: { mode: "admin", custom: ["admin", "editor", "user"], orgCreation: "any_user", hideAdmin: false },
+  notify: { securityChanges: true, newDevice: false },
   deletion: { mode: "hard", export: true, guard: false, records: "delete", lastOrgOwner: "block" },
 };
 

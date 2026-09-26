@@ -208,6 +208,8 @@ export function testFile(a: Answers): string {
       : "";
     blocks.push(tpl("bearer", { BEARER_SIGNIN: signIn }));
   }
+  if (pw && a.notify.securityChanges) blocks.push(tpl("notify"));
+  if (pw && a.notify.newDevice) blocks.push(tpl("notify-new-device"));
   if (pw && a.session.devices === "multi") {
     blocks.push(
       tpl("password-change", {

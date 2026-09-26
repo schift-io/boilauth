@@ -33,6 +33,7 @@ import { createHash } from "node:crypto";
 import type { PasswordHasher } from "./hash/index.js";
 import { clientIpKeyOf } from "./modules/client-ip.js";
 import { consume, peek, reset } from "./modules/counter-store.js";
+import type { Notify } from "./modules/notify.js";
 
 export interface LockoutOptions {
   /** Wrong passwords per account per source before that source is locked. 0 turns lockout off. */
@@ -54,6 +55,8 @@ export interface BoilauthPluginOptions {
   phoneSignIn?: boolean;
   /** Absolute session lifetime from sign-in, whatever the activity (audit F10). */
   absoluteSessionSeconds?: number;
+  /** Security notices: the account-wide lock engaged, a sign-in from a new source. */
+  notify?: Notify;
 }
 
 const SIGN_IN = "/sign-in/email";
@@ -230,10 +233,10 @@ export function boilauthPlugin(opts: BoilauthPluginOptions) {
               const u = ((await ia.findUserById(userId)) ?? {}) as LockFields;
               const t = now().getTime();
               const source = sourceOf(ctx);
-              const known = [
-                { s: source, t },
-                ...knownList(u.knownSignInSources).filter((k) => k.s !== source && t - k.t < opts.lockout.knownSourceDays * 86_400_000),
-              ].slice(0, MAX_KNOWN);
+              const previous = knownList(u.knownSignInSources).filter((k) => t - k.t < opts.lockout.knownSourceDays * 86_400_000);
+              const known = [{ s: source, t }, ...previous.filter((k) => k.s !== source)].slice(0, MAX_KNOWN);
+              // The first sign-in ever is not a "new device"; a source missing from a non-empty list is.
+              if (previous.length && !previous.some((k) => k.s === source)) await opts.notify?.("security.new_device", userId, ctx);
               await ia.updateUser(userId, { failedLoginCount: 0, lockedUntil: null, knownSignInSources: JSON.stringify(known) });
               if (opts.lockout.maxFailures > 0) await reset(storageOf(ctx), ctx.context.adapter, lockKey(userId, source));
               const account = await ia.findCredentialAccount(userId);
@@ -259,6 +262,7 @@ export function boilauthPlugin(opts: BoilauthPluginOptions) {
               failedLoginCount: lock ? 0 : failures,
               lockedUntil: lock ? new Date(t + opts.lockout.lockMinutes * 60_000) : null,
             });
+            if (lock) await opts.notify?.("security.account_locked", u.id, ctx, { lockMinutes: opts.lockout.lockMinutes });
           }),
         },
       ],

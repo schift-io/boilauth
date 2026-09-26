@@ -1,0 +1,12 @@
+test("security notices: a sign-in from a new device is mailed; the same device again is not", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const { email } = await h.newUser(auth, "device");
+  const home = h.nextIp();
+  const count = () => h.outbox.filter((m) => m.to === email && (m as { kind?: string }).kind === "security.new_device").length;
+  assert.equal((await h.call(auth, "/sign-in/email", { body: { email, password: h.PW }, ip: home })).status, 200);
+  const before = count();
+  assert.equal((await h.call(auth, "/sign-in/email", { body: { email, password: h.PW }, ip: home })).status, 200);
+  assert.equal(count(), before, "a known device is not news");
+  assert.equal((await h.call(auth, "/sign-in/email", { body: { email, password: h.PW } })).status, 200);
+  assert.equal(count(), before + 1);
+});

@@ -17,6 +17,7 @@ import { phonePlugins, type PhoneOptions } from "./modules/phone.js";
 import { SEND_LIMIT_PLUGIN_ID, withRateLimitHeaders } from "./modules/rate-limit.js";
 import { hideAdminRoutes } from "./modules/admin-hide.js";
 import { CLIENT_IP_HEADER, withClientIp, type ClientIpConfig } from "./modules/client-ip.js";
+import { DEFAULT_SECURITY_NOTICES, notifier, securityNotices, type SecurityNotices } from "./modules/notify.js";
 
 export const PRESETS = {
   minPasswordLength: 12, // ASVS 4.0.3 2.1.1
@@ -45,6 +46,8 @@ export interface EmailMessage {
   to: string;
   subject: string;
   text: string;
+  /** Set on security notices (security.password_changed, ...), so a sender can use its own template. */
+  kind?: string;
 }
 
 export interface BoilAuthOptions {
@@ -70,6 +73,11 @@ export interface BoilAuthOptions {
   requireEmailVerification?: boolean;
   /** Sends verification and password-reset mail. Without it neither mail goes out. */
   sendEmail?: (msg: EmailMessage) => Promise<void>;
+  /**
+   * Security notices through sendEmail (password changed, two-factor changed, account-wide lock,
+   * sign-in from a new device). Default: all on except newDevice.
+   */
+  securityNotices?: Partial<SecurityNotices>;
   /** OAuth identity with an existing email: link when both sides are verified, or never. */
   accountLinking?: "verified_only" | "never";
   socialProviders?: BetterAuthOptions["socialProviders"];
@@ -128,6 +136,7 @@ export function boilAuthOptions(o: BoilAuthOptions) {
           send({ to: user.email, subject: "Reset your password", text: url })
       : undefined);
   const userPlugins = o.plugins ?? [];
+  const notify = notifier(send, { ...DEFAULT_SECURITY_NOTICES, ...o.securityNotices });
   const wantsAdmin = (o.admin ?? true) && !userPlugins.some((p) => p.id === "admin");
   const signInPerMinute = o.rateLimitSignInPerMinute ?? PRESETS.rateLimit.customRules["/sign-in/email"].max;
   // boilauth/rate-limit goes first so its per-IP rules win over later plugins' own (Better Auth takes the first match).
@@ -208,7 +217,9 @@ export function boilAuthOptions(o: BoilAuthOptions) {
         ...(o.username ? { normalizeUsername: (u: string) => normalizeUsername(o.username!, u) } : {}),
         phoneSignIn: Boolean(o.phone),
         absoluteSessionSeconds: (o.sessionAbsoluteDays ?? PRESETS.session.absoluteDays) * 86400,
+        notify,
       }),
+      ...(send ? [securityNotices(notify)] : []),
       ...(o.username ? [usernamePlugin(usernamePluginOptions(o.username))] : []),
       ...(o.phone ? phonePlugins(o.phone, o.now) : []),
       ...(o.hideAdminRoutes ? [hideAdminRoutes()] : []),

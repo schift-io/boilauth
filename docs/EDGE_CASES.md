@@ -159,6 +159,15 @@ has no second step and never satisfies the admin requirement.
 
 Stops at roles. No attribute or policy engine.
 
+## K. Security notices (through `sendEmail`, each message has a `kind`)
+
+| Case | Policy key | Choices | Module | Spec |
+|---|---|---|---|---|
+| Password changed or reset, two-factor on/off, account-wide lock | `notify.securityChanges` | **yes** / no | `boilauth` security notices | F9 |
+| Sign-in from a device (IP) not seen in the last 90 days | `notify.newDevice` | yes / **no** (asked with email + password) | `boilauth` security notices | F9 |
+
+The transparent rehash at sign-in and imports are not password changes. The first sign-in ever is not a new device.
+
 ## J. Account deletion
 
 | Case | Policy key | Choices | Module | Spec |
@@ -185,7 +194,8 @@ they sent stay as history.
 8. G lockout (needs email + password), rate limit, sessions
 9. I roles
 10. H MFA (needs email + password; `totp_required_admin` needs roles)
-11. J deletion
+11. K security notices
+12. J deletion
 
 ## Schema per module
 

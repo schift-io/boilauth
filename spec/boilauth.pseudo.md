@@ -273,3 +273,11 @@ session create/update (databaseHooks): expiresAt = min(expiresAt, createdAt + ab
   (on refresh Better Auth has the loaded session in the endpoint context; its createdAt is used)
 /get-session after-hook: session with createdAt + absoluteDays <= now -> delete it, clear the cookie, answer null.
 Sliding refresh (updateAge) therefore never keeps a session past absoluteDays (audit F10, ASVS 3.3.2).
+
+## [F9] Security notices — `src/modules/notify.ts`
+password routes (/change-password, /reset-password, /set-password, /email-otp/reset-password,
+/phone-number/reset-password): user resolved before the route (reset token, email, number) or from the
+session; on success -> sendEmail({ kind: "security.password_changed" }).
+user.twoFactorEnabled changes (update hook) -> security.mfa_changed (on / off).
+account-wide lock engages (L1) -> security.account_locked. Successful sign-in from a source missing from a
+non-empty knownSignInSources -> security.new_device (off by default). Send failures are logged, never thrown.

@@ -248,6 +248,15 @@ export const QUESTIONS: Question[] = [
     key: "mfa.emailOtp", group: "H. MFA", type: "confirm", when: (a) => pw(a) && a.mfa.mode !== "off",
     message: "Also accept a code sent by email as the second factor? (admin access still needs TOTP or a backup code)",
   },
+  // K. Security notices
+  {
+    key: "notify.securityChanges", group: "K. Security notices", type: "confirm",
+    message: "Email the user when their password or two-factor setting changes, or when many wrong passwords lock their account?",
+  },
+  {
+    key: "notify.newDevice", group: "K. Security notices", type: "confirm", when: (a) => a.signIn.emailPassword,
+    message: "Email the user when they sign in from a device (IP) not seen in the last 90 days?",
+  },
   // J. Deletion
   {
     key: "deletion.mode", group: "J. Account deletion", type: "select",

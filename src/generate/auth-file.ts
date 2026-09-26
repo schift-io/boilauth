@@ -144,6 +144,10 @@ export function authFile(a: Answers): string {
   if (!rolesOn) opts.push("admin: false");
   else if (a.roles.hideAdmin) opts.push("hideAdminRoutes: true");
   if (a.session.bearer) opts.push("bearer: true");
+  if (!a.notify.securityChanges || a.notify.newDevice) {
+    const on = a.notify.securityChanges;
+    opts.push(`securityNotices: { passwordChanged: ${on}, mfaChanged: ${on}, accountLocked: ${on}, newDevice: ${a.notify.newDevice && a.signIn.emailPassword} }`);
+  }
   const extraBetterAuth = oauth.includes("apple")
     ? '{ trustedOrigins: ["https://appleid.apple.com"], ...d.betterAuth }'
     : "d.betterAuth";
@@ -269,6 +273,8 @@ export function emailFile(): string {
   return `// Generated once by \`boilauth init\`. Yours to edit: connect your mail provider here.
 import type { EmailMessage } from "boilauth";
 
+// msg.kind is set on security notices (security.password_changed, security.mfa_changed,
+// security.account_locked, security.new_device) if you want your own templates for them.
 export async function sendEmail(msg: EmailMessage): Promise<void> {
   if (process.env.NODE_ENV === "production") {
     throw new Error("src/email.ts: connect a mail provider before production");
