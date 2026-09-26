@@ -18,6 +18,7 @@ import { SEND_LIMIT_PLUGIN_ID, withRateLimitHeaders } from "./modules/rate-limit
 import { hideAdminRoutes } from "./modules/admin-hide.js";
 import { CLIENT_IP_HEADER, withClientIp, type ClientIpConfig } from "./modules/client-ip.js";
 import { mfaOnAllSignIns, withoutTokenOnChallenge } from "./modules/mfa-all.js";
+import { knownPathMatcher, withKnownPaths } from "./modules/known-paths.js";
 import { DEFAULT_SECURITY_NOTICES, notifier, securityNotices, type SecurityNotices } from "./modules/notify.js";
 
 export const PRESETS = {
@@ -125,6 +126,31 @@ export interface BoilAuthOptions {
   betterAuth?: Partial<BetterAuthOptions>;
 }
 
+/**
+ * Plugins that issue a session on a path the second-factor check (mfa-all) does not cover.
+ * With twoFactor on they would sign a user with two-factor in on one factor.
+ */
+const UNCHECKED_SESSION_PLUGINS = ["device-authorization", "siwe"];
+
+function refuseUnsafeOverrides(o: BoilAuthOptions, plugins: { id: string }[]) {
+  const ip = o.betterAuth?.advanced?.ipAddress as { ipAddressHeaders?: unknown; disableIpTracking?: unknown } | undefined;
+  if (ip?.ipAddressHeaders !== undefined) {
+    throw new Error(
+      "boilauth: betterAuth.advanced.ipAddress.ipAddressHeaders would let Better Auth read a client-sent header " +
+        "for rate limits. Use clientIp: { mode: \"header\", header } (one platform header) or trustedProxies instead.",
+    );
+  }
+  if (ip?.disableIpTracking) throw new Error("boilauth: betterAuth.advanced.ipAddress.disableIpTracking turns off per-IP rate limits; not supported.");
+  if (o.mfaOnAllSignIns === false || !plugins.some((p) => p.id === "two-factor")) return;
+  const unchecked = plugins.filter((p) => UNCHECKED_SESSION_PLUGINS.includes(p.id)).map((p) => p.id);
+  if (unchecked.length) {
+    throw new Error(
+      `boilauth: ${unchecked.join(", ")} issues sessions outside the second-factor check (mfa-all), ` +
+        "so a user with two-factor on could sign in on one factor. Not supported together with twoFactor.",
+    );
+  }
+}
+
 export function boilAuthOptions(o: BoilAuthOptions) {
   const hasher = createPasswordHasher({ argon2: o.argon2, firebaseKeys: o.firebaseKeys });
   const extra = o.betterAuth ?? {};
@@ -207,11 +233,12 @@ export function boilAuthOptions(o: BoilAuthOptions) {
     advanced: {
       useSecureCookies: o.baseURL.startsWith("https://"),
       ...extra.advanced,
-      // boilauth resolves the client IP (withClientIp) and hands it over in one private header.
+      // boilauth resolves the client IP (withClientIp) and hands it over in one private header;
+      // overriding the header list is refused above (re-audit C2).
       ipAddress: {
-        ipAddressHeaders: [CLIENT_IP_HEADER],
         ipv6Subnet: 64,
         ...extra.advanced?.ipAddress,
+        ipAddressHeaders: [CLIENT_IP_HEADER],
       },
     },
     plugins: [
@@ -228,7 +255,7 @@ export function boilAuthOptions(o: BoilAuthOptions) {
       ...(send ? [securityNotices(notify)] : []),
       ...(o.mfaOnAllSignIns === false ? [] : [mfaOnAllSignIns()]),
       ...(o.username ? [usernamePlugin(usernamePluginOptions(o.username))] : []),
-      ...(o.phone ? phonePlugins(o.phone, o.now) : []),
+      ...(o.phone ? phonePlugins(o.phone, o.now, notify) : []),
       ...(o.hideAdminRoutes ? [hideAdminRoutes()] : []),
       ...(o.bearer ? [bearer()] : []),
       ...(wantsAdmin ? [admin()] : []),
@@ -236,6 +263,7 @@ export function boilAuthOptions(o: BoilAuthOptions) {
       ...(extra.plugins ?? []),
     ],
   } satisfies BetterAuthOptions;
+  refuseUnsafeOverrides(o, options.plugins as { id: string }[]);
   return { options, hasher };
 }
 
@@ -246,9 +274,12 @@ export function clientIpConfig(o: BoilAuthOptions): ClientIpConfig {
 export function createBoilAuth(o: BoilAuthOptions) {
   const { options, hasher } = boilAuthOptions(o);
   const auth = betterAuth(options);
-  // Resolve the client IP first; Better Auth's own 429 carries only X-Retry-After, add the standard header.
+  // Unknown paths stop first (no rate-limit key); then the client IP is resolved. Better Auth's own
+  // 429 carries only X-Retry-After: add the standard header. A two-factor challenge never carries a
+  // bearer token, whether bearer() came from the option or from plugins (re-audit L3).
+  const known = knownPathMatcher(auth.api as Record<string, unknown>, options.basePath ?? "/api/auth");
   const resolved = withClientIp(auth.handler, clientIpConfig(o));
-  const handler = withRateLimitHeaders(o.bearer ? withoutTokenOnChallenge(resolved) : resolved);
+  const handler = withKnownPaths(withRateLimitHeaders(withoutTokenOnChallenge(resolved)), known);
   return Object.assign(auth, { handler, boilauth: { hasher, options, input: o } });
 }
 

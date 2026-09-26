@@ -6,10 +6,13 @@
  *    lock the owner out forever with 5 wrong passwords):
  *    - per source: `maxFailures` wrong passwords for one account from one
  *      client IP (/64 for IPv6) lock that source for `lockMinutes`;
- *    - per account: `accountMaxFailures` wrong passwords from all sources
- *      lock the account for `lockMinutes` against sources that have not
- *      signed in to it successfully in the last `knownSourceDays`; the owner's
- *      usual devices keep working.
+ *    - per account: `accountMaxFailures` wrong passwords from sources that
+ *      have not signed in to it successfully in the last `knownSourceDays`
+ *      lock the account for `lockMinutes` against those sources; the owner's
+ *      usual devices keep working. A known source's own typos do not count
+ *      toward it, and a successful sign-in does not clear it: the lock ends
+ *      after `lockMinutes`, and the count restarts when a lock engages
+ *      (re-audit C8: the owner's sign-in used to hand attackers a fresh count).
  *    While locked, sign-in answers exactly like a wrong password (401
  *    INVALID_EMAIL_OR_PASSWORD) and the password is not checked, so the lock
  *    does not reveal whether the account exists.
@@ -17,6 +20,10 @@
  *    stored hash is not argon2id at the current preset (imported bcrypt or
  *    Firebase scrypt, or weaker argon2 params) it is replaced with a fresh
  *    argon2id hash of the password the user just proved.
+ *
+ * 3. An admin setting a user's password (POST /admin/set-user-password) ends
+ *    that user's sessions and sends the password-changed notice, like a
+ *    reset does (re-audit C6).
  *
  * Both cover POST /sign-in/email and, when on, POST /sign-in/username (the
  * account is found by the normalized username) and POST /sign-in/phone-number.
@@ -60,6 +67,13 @@ export interface BoilauthPluginOptions {
 }
 
 const SIGN_IN = "/sign-in/email";
+const SIGN_UP = "/sign-up/email";
+/**
+ * A sign-up that issues no session (verification required, or autoSignIn off) answers with these
+ * user fields only. Better Auth answers a duplicate email with a stand-in user that plugin defaults
+ * (the admin role, ...) never touched, so any other field told a taken email apart (re-audit C1).
+ */
+const SIGN_UP_FIELDS = ["id", "email", "name", "image", "emailVerified", "createdAt", "updatedAt"] as const;
 const SIGN_IN_USERNAME = "/sign-in/username";
 const SIGN_IN_PHONE = "/sign-in/phone-number";
 
@@ -210,6 +224,25 @@ export function boilauthPlugin(opts: BoilauthPluginOptions) {
       ],
       after: [
         {
+          matcher: (ctx) => ctx.path === "/admin/set-user-password",
+          handler: createAuthMiddleware(async (ctx) => {
+            const r = ctx.context.returned as { status?: unknown } | undefined;
+            const userId = typeof ctx.body?.userId === "string" ? ctx.body.userId : "";
+            if (!userId || !r || r instanceof Error || r.status !== true) return;
+            await ctx.context.internalAdapter.deleteUserSessions(userId);
+            await opts.notify?.("security.password_changed", userId, ctx);
+          }),
+        },
+        {
+          matcher: (ctx) => ctx.path === SIGN_UP,
+          handler: createAuthMiddleware(async (ctx) => {
+            const r = ctx.context.returned as { token?: unknown; user?: Record<string, unknown> } | undefined;
+            if (!r || r instanceof APIError || typeof r !== "object" || r.token !== null || !r.user) return;
+            const user = Object.fromEntries(SIGN_UP_FIELDS.map((k) => [k, r.user![k] ?? null]));
+            return ctx.json({ token: null, user: { ...user, emailVerified: false } });
+          }),
+        },
+        {
           // A session created before this cap (or with a slid expiry) ends at createdAt + absolute.
           matcher: (ctx) => ctx.path === "/get-session",
           handler: createAuthMiddleware(async (ctx) => {
@@ -237,7 +270,7 @@ export function boilauthPlugin(opts: BoilauthPluginOptions) {
               const known = [{ s: source, t }, ...previous.filter((k) => k.s !== source)].slice(0, MAX_KNOWN);
               // The first sign-in ever is not a "new device"; a source missing from a non-empty list is.
               if (previous.length && !previous.some((k) => k.s === source)) await opts.notify?.("security.new_device", userId, ctx);
-              await ia.updateUser(userId, { failedLoginCount: 0, lockedUntil: null, knownSignInSources: JSON.stringify(known) });
+              await ia.updateUser(userId, { knownSignInSources: JSON.stringify(known) });
               if (opts.lockout.maxFailures > 0) await reset(storageOf(ctx), ctx.context.adapter, lockKey(userId, source));
               const account = await ia.findCredentialAccount(userId);
               if (account?.password && password && opts.hasher.needsRehash(account.password)) {
@@ -253,7 +286,10 @@ export function boilauthPlugin(opts: BoilauthPluginOptions) {
             const u = await target(ctx);
             if (!u) return;
             const t = now().getTime();
-            await consume(storageOf(ctx), ctx.context.adapter, lockKey(u.id, sourceOf(ctx)), opts.lockout.maxFailures, lockWindow, t);
+            const source = sourceOf(ctx);
+            await consume(storageOf(ctx), ctx.context.adapter, lockKey(u.id, source), opts.lockout.maxFailures, lockWindow, t);
+            const known = knownList(u.knownSignInSources).some((k) => k.s === source && t - k.t < opts.lockout.knownSourceDays * 86_400_000);
+            if (known) return; // the owner's own typo: per-source counter only
             const lockedUntil = u.lockedUntil ? new Date(u.lockedUntil) : null;
             if (lockedUntil && lockedUntil.getTime() > t) return; // account already locked
             const failures = (u.failedLoginCount ?? 0) + 1;

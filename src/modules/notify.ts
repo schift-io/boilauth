@@ -21,11 +21,18 @@ export interface SecurityNotices {
   mfaChanged: boolean;
   accountLocked: boolean;
   newDevice: boolean;
+  /** A phone number was attached to the account (a new SMS sign-in path). */
+  phoneChanged: boolean;
 }
 
-export const DEFAULT_SECURITY_NOTICES: SecurityNotices = { passwordChanged: true, mfaChanged: true, accountLocked: true, newDevice: false };
+export const DEFAULT_SECURITY_NOTICES: SecurityNotices = { passwordChanged: true, mfaChanged: true, accountLocked: true, newDevice: false, phoneChanged: true };
 
-export type NoticeKind = "security.password_changed" | "security.mfa_changed" | "security.account_locked" | "security.new_device";
+export type NoticeKind =
+  | "security.password_changed"
+  | "security.mfa_changed"
+  | "security.account_locked"
+  | "security.new_device"
+  | "security.phone_changed";
 
 const PASSWORD_PATHS = new Set([
   "/change-password",
@@ -59,6 +66,8 @@ export function noticeMail(kind: NoticeKind, to: string, detail: { enabled?: boo
       };
     case "security.new_device":
       return { to, kind, subject: "New sign-in to your account", text: `Your account was signed in to from a new device at ${when}. ${tail}` };
+    case "security.phone_changed":
+      return { to, kind, subject: "A phone number was added to your account", text: `A phone number was added to your account for sign-in at ${when}. ${tail}` };
   }
 }
 
@@ -71,6 +80,7 @@ export function notifier(send: ((m: EmailMessage) => Promise<void>) | undefined,
     "security.mfa_changed": flags.mfaChanged,
     "security.account_locked": flags.accountLocked,
     "security.new_device": flags.newDevice,
+    "security.phone_changed": flags.phoneChanged,
   };
   return async (kind, userId, ctx, detail) => {
     if (!send || !on[kind]) return;

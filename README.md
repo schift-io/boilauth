@@ -142,28 +142,31 @@ Better Auth 1.7.6 plugins the wizard does not offer yet (each needs a generated-
 test before it becomes a choice): `anonymous`, `bearer`, `jwt`, API keys, `one-time-token`,
 `multi-session`, `captcha`, `one-tap`, `siwe`, `device-authorization`, `generic-oauth`
 (any OIDC provider), `last-login-method`, `custom-session`, `additional-fields`,
-`oauth-proxy`, and the separate passkey and SSO packages. You can still add any of them
-to the generated `src/auth.ts` by hand; it is a normal Better Auth config.
+`oauth-proxy`, and the separate `@better-auth/passkey` and `@better-auth/sso` packages.
+You can still add any of them to the generated `src/auth.ts` by hand; it is a normal Better
+Auth config. Exceptions: with two-factor on, `createBoilAuth` refuses `device-authorization`
+and `siwe` at startup, because their sign-in paths (`/device/token`, `/siwe/verify`) issue a
+session without the second factor.
 
 ## What the presets are
 
 | Area | Default | Where |
 |---|---|---|
 | New password hashes | argon2id, m=19456 KiB, t=2, p=1 (OWASP minimum) | `createPasswordHasher` |
-| Password length | 10–128 | `PRESETS` |
-| Per-account lockout | 5 consecutive failures → locked 15 min. Locked looks exactly like a wrong password (same 401, password not checked). | `boilauthPlugin` |
+| Password length | 12–128 | `PRESETS` |
+| Lockout | 5 wrong passwords from one source lock that source for the account for 15 min; 20 from unknown sources lock the account against unknown sources for 15 min. Locked looks exactly like a wrong password (same 401, password not checked). | `boilauthPlugin` |
 | Per-IP rate limit | on, stored in the DB. `/sign-in/email` 10/min, `/request-password-reset` 3/5 min; Better Auth's 3/10 s on sign-up / change-password / change-email | `PRESETS.rateLimit` |
 | Sessions | 7 days, expiry refreshed at most daily, "fresh" = 10 min, all sessions revoked on password reset, new token on every sign-in | `PRESETS.session` |
 | Role change | all of the user's sessions are deleted | `grantRole` |
 | Account linking | OAuth linking only onto a locally verified email (Better Auth `requireLocalEmailVerified`) | `createBoilAuth` |
 
-**Set the client IP source before production.** Better Auth reads the client IP
-from `x-forwarded-for` only. If no usable header arrives (e.g. a bare Node server
-with no proxy), every client shares one rate-limit bucket per path, so 10 sign-ins
-per minute would be the limit for *everyone*. Behind a proxy, pass
-`trustedProxies: ["10.0.0.0/8", …]`; with a different header, set
-`betterAuth: { advanced: { ipAddress: { ipAddressHeaders: ["cf-connecting-ip"] } } }`.
-Every Better Auth option can still be overridden through `betterAuth: {...}`.
+**Set the client IP source before production** (`network.clientIp`, see the wizard table):
+`socket` (default) mounts with `toNodeHandler` from `boilauth/node`; behind your own proxy
+pass `trustedProxies: ["10.0.0.0/8", …]`; on a platform that sets one client-IP header, use
+`clientIp: { mode: "header", header: "cf-connecting-ip" }`. Every Better Auth option can
+still be overridden through `betterAuth: {...}`, except the client-IP source:
+`betterAuth.advanced.ipAddress.ipAddressHeaders` and `disableIpTracking` are refused at
+startup, since they would let a client-sent header decide the rate-limit key.
 
 ## Username rules
 
@@ -184,9 +187,9 @@ immutable: false              # true: a username cannot change once set
 ```
 
 Username, phone + password and email sign-in share one lockout counter per account and
-the same per-IP sign-in limit. Sign-in by magic link, email code, SMS code or OAuth has
-no second step, even for a user with TOTP enrolled, and never satisfies
-`totp_required_admin`.
+the same per-IP sign-in limit. With `mfa.allSignIns` (default) a user with TOTP passes it
+after a magic link, email or SMS code or OAuth too; such a sign-in never satisfies
+`totp_required_admin` on its own.
 
 ## Migration guides
 
@@ -321,13 +324,26 @@ A test fails if any module's live columns drift from its file.
 - Sessions end 30 days after sign-in however active they are (`session.absoluteDays`).
 - A user with two-factor on passes it after every first factor: password, magic link,
   email or SMS code, OAuth, and email verification if you turn on auto sign-in there
-  (`mfa.allSignIns`, default on). A two-factor challenge carries no bearer token.
+  (`mfa.allSignIns`, default on). After a first factor that proves only the mailbox or
+  the phone, the email code cannot be the second factor (403 `SECOND_FACTOR_NOT_ALLOWED`):
+  TOTP or a backup code finishes it. A two-factor challenge carries no bearer token.
+- Lockout counting: a known device's own typos count only toward its own source lock, and
+  a successful sign-in does not clear the account-wide lock for other sources.
+- A duplicate sign-up answers with the same status, body shape and timing as a new one.
+- A soft-deleted account answers the right password exactly like a wrong one.
+- Paths that are not endpoints of your instance answer 404 before any rate-limit counter
+  is written, so made-up paths cannot fill the rate-limit table or push hot counters out
+  of the in-memory store. The in-memory store (`rateLimit.storage = memory`) still holds
+  at most 100 000 counters per process and evicts the oldest first; an attacker with many
+  addresses can still cycle it. Use `database` (default) when that matters.
+- Attaching a phone number needs a sign-in within the last 10 minutes and sends a notice;
+  an admin setting a user's password ends that user's sessions and sends a notice.
 - `network.clientIp = header`: the header must hold exactly one address. A value with a
   comma (appended to by a proxy, or sent twice) counts as no IP, so point it only at a
   header your edge overwrites.
-- The user is mailed when their password or two-factor setting changes and when many
-  wrong passwords lock their account (`notify.securityChanges`); optionally on sign-in
-  from a new device (`notify.newDevice`).
+- The user is mailed when their password (including an admin's reset), two-factor
+  setting or phone number changes and when many wrong passwords lock their account
+  (`notify.securityChanges`); optionally on sign-in from a new device (`notify.newDevice`).
 - Account enumeration: sign-in answers and timings are the same for existing and missing
   accounts on email, username and phone; a duplicate sign-up answers like a new one; the
   username availability check is limited per IP (or removed).

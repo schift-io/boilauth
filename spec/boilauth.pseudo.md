@@ -34,9 +34,10 @@ before: user = account named by the request (email / username / phone)
         if count(boilauth-lock:user:source, window lockMinutes) >= maxFailures -> dummy hash, 401 as wrong password
         if user.lockedUntil > now and source not in user.knownSignInSources (last knownSourceDays)
                                                            -> dummy hash, 401 as wrong password
-after, success: user.failedLoginCount = 0, lockedUntil = null, knownSignInSources = [source, ...] (last 10)
-                reset boilauth-lock:user:source
+after, success: knownSignInSources = [source, ...] (last 10); reset boilauth-lock:user:source
+                failedLoginCount and lockedUntil untouched (re-audit C8: a success used to reopen the lock)
 after, 401:     count boilauth-lock:user:source (conditional increment, rateLimit storage)
+                source known (last knownSourceDays) -> stop (the owner's typo)
                 user.failedLoginCount += 1; at accountMaxFailures -> lockedUntil = now + lockMinutes, count 0
 ```
 An attacker's own IP is stopped after maxFailures; a distributed attack after accountMaxFailures, while the
@@ -267,6 +268,10 @@ Refused numbers do not count. Per IP and per number the send limits (L3) still a
 
 ## [F7] Enumeration hardening
 sign-up with verification optional: autoSignIn false -> duplicate answers 200 { token: null } like a new user.
+sign-up with no session issued (either verification setting): the answer is { token: null, user } with only
+id, email, name, image, emailVerified (false), createdAt, updatedAt (re-audit C1: the duplicate's stand-in user
+lacked plugin defaults such as role).
+soft-deleted account, password sign-in with the right password -> same 401 as a wrong one (re-audit C7).
 /sign-in/username, /sign-in/phone-number: no account, no password, or (phone) unverified -> dummy hash first,
 so every branch costs one hash.
 /is-username-available: per IP per hour (default 30); 0 -> disabledPaths (404).
@@ -282,7 +287,8 @@ password routes (/change-password, /reset-password, /set-password, /email-otp/re
 /phone-number/reset-password): user resolved before the route (reset token, email, number) or from the
 session; on success -> sendEmail({ kind: "security.password_changed" }).
 user.twoFactorEnabled changes (update hook) -> security.mfa_changed (on / off).
-account-wide lock engages (L1) -> security.account_locked. Successful sign-in from a source missing from a
+account-wide lock engages (L1) -> security.account_locked. Phone number attached (C5) -> security.phone_changed.
+Admin set-user-password (C6) -> security.password_changed. Successful sign-in from a source missing from a
 non-empty knownSignInSources -> security.new_device (off by default). Send failures are logged, never thrown.
 
 ## [H3] Second factor on every sign-in — `src/modules/mfa-all.ts`
@@ -294,10 +300,28 @@ if the new session's user has twoFactorEnabled:
   else -> delete the session and its cookie, set the signed two_factor
 cookie (2fa-<id> -> user, attempts counter; as Better Auth's twoFactor does for passwords), then
   JSON route -> { twoFactorRedirect: true, twoFactorMethods }; redirect route -> same Location + ?twoFactorRedirect=true.
-/two-factor/verify-totp (or backup code, email second step) finishes the sign-in. Trusted-device cookie not honoured here.
+/two-factor/verify-totp or a backup code finishes the sign-in. The challenge carries a 2fa-passwordless-<id>
+verification row; /two-factor/send-otp and /two-factor/verify-otp for it -> 403 SECOND_FACTOR_NOT_ALLOWED
+(re-audit C3: the email code would be a second use of the mailbox). Trusted-device cookie not honoured here.
+Startup: with twoFactor and mfa-all on, device-authorization and siwe plugins -> throw (unchecked session paths).
 Default on (audit F11, ASVS 2.2.2); mfaOnAllSignIns: false restores the old behaviour.
 Every Better Auth 1.7.6 endpoint calling setSessionCookie is classified in the header of src/modules/mfa-all.ts
 (challenged / twoFactor plugin / already signed in / new user / admin action / plugins not offered).
+
+## [C4] Unknown paths — `src/modules/known-paths.ts`
+request path (under basePath) that matches no endpoint of the instance (":param" = one segment) -> 404 before
+Better Auth, so no rate-limit counter is created for it.
+
+## [C5] Phone attach — `src/modules/phone.ts`
+/phone-number/verify with updatePhoneNumber: session older than sessionConfig.freshAge -> 403 SESSION_NOT_FRESH
+before the code is checked; on success -> security.phone_changed.
+
+## [C6] Admin password set — `src/plugin.ts`
+/admin/set-user-password success -> delete all of that user's sessions, security.password_changed.
+
+## [N2] Client IP overrides — `src/auth.ts`
+betterAuth.advanced.ipAddress.ipAddressHeaders or disableIpTracking -> throw at startup (re-audit C2); the
+header list is always [x-boilauth-client-ip]. ipv6Subnet may be overridden.
 
 ## [D7] Admin removal — `src/modules/deletion.ts`
 user.delete.before (databaseHooks), only when the request path is /admin/remove-user (the admin plugin has checked

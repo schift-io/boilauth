@@ -14,6 +14,11 @@
  * An SMS-code sign-in has no second step, like magic link: it never
  * satisfies boilauth/mfa's admin requirement.
  *
+ * Attaching a number (updatePhoneNumber: true) adds an SMS sign-in path to the
+ * account, so it needs a fresh session (signed in within the session freshAge,
+ * default 10 minutes; else 403 SESSION_NOT_FRESH before the code is spent) and
+ * sends the security.phone_changed notice (re-audit C5).
+ *
  * SMS pumping (audit F2): numbers outside `allowedCountryCodes` are refused
  * with 400 before any SMS, and `smsPerHour` caps SMS sends site-wide (all
  * numbers, all IPs) with 429, on top of the per-IP and per-number send limits.
@@ -21,7 +26,8 @@
 import { randomUUID } from "node:crypto";
 import type { BetterAuthPlugin } from "better-auth";
 import { phoneNumber } from "better-auth/plugins";
-import { APIError, createAuthMiddleware } from "better-auth/api";
+import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
+import type { Notify } from "./notify.js";
 import { consume } from "./counter-store.js";
 
 export interface SmsMessage {
@@ -99,8 +105,43 @@ function smsBudget(o: PhoneOptions, perHour: number, now: () => Date): BetterAut
 }
 
 /** Better Auth's phoneNumber plugin with boilauth's presets, plus the SMS budget when set. */
-export function phonePlugins(o: PhoneOptions, now: () => Date = () => new Date()): BetterAuthPlugin[] {
-  return [phonePlugin(o), ...(o.smsPerHour && o.smsPerHour > 0 ? [smsBudget(o, o.smsPerHour, now)] : [])];
+export function phonePlugins(o: PhoneOptions, now: () => Date = () => new Date(), notify?: Notify): BetterAuthPlugin[] {
+  return [phonePlugin(o), phoneAttachGuard(notify), ...(o.smsPerHour && o.smsPerHour > 0 ? [smsBudget(o, o.smsPerHour, now)] : [])];
+}
+
+const ATTACH = "/phone-number/verify";
+const attaching = (ctx: any) => ctx.path === ATTACH && ctx.body?.updatePhoneNumber === true;
+
+/** Fresh session to attach a number, and a notice once attached (re-audit C5). */
+function phoneAttachGuard(notify?: Notify): BetterAuthPlugin {
+  return {
+    id: "boilauth-phone-attach",
+    hooks: {
+      before: [
+        {
+          matcher: attaching,
+          handler: createAuthMiddleware(async (ctx) => {
+            const found = await getSessionFromCtx(ctx);
+            if (!found?.session) return; // the route answers 401 itself
+            const freshAge = ctx.context.sessionConfig.freshAge;
+            if (freshAge !== 0 && Date.now() - new Date(found.session.createdAt).getTime() >= freshAge * 1000) {
+              throw APIError.from("FORBIDDEN", { code: "SESSION_NOT_FRESH", message: "Sign in again to attach a phone number" });
+            }
+          }),
+        },
+      ],
+      after: [
+        {
+          matcher: attaching,
+          handler: createAuthMiddleware(async (ctx) => {
+            const r = ctx.context.returned as { status?: unknown; user?: { id?: string } } | undefined;
+            if (!notify || !r || r instanceof Error || r.status !== true || !r.user?.id) return;
+            await notify("security.phone_changed", r.user.id, ctx);
+          }),
+        },
+      ],
+    },
+  };
 }
 
 export function phonePlugin(o: PhoneOptions) {

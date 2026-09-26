@@ -51,7 +51,7 @@ test("F4: a distributed guess attack locks the account for unknown sources; the 
   assert.equal((await signIn(auth, "lock@example.com", "right-password-1", home)).status, 200, "the owner's known source still works");
 });
 
-test("a success resets the failure counter", async () => {
+test("a success resets that source's failure counter", async () => {
   const t = new Date("2026-01-01T00:00:00Z");
   const auth = await withUser(() => t);
   const ip = "203.0.113.77";

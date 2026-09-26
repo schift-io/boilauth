@@ -5,7 +5,9 @@
  * soft: POST /boilauth/delete-account (password when the user has one, a fresh
  *       session otherwise) sets user.deletedAt and ends every session; any later
  *       attempt to create a session for that user is refused at the database
- *       hook, so password, magic link and OAuth are all covered.
+ *       hook, so password, magic link and OAuth are all covered. A password
+ *       sign-in to such an account answers exactly like a wrong password, so
+ *       the right password is not confirmed (re-audit C7).
  *       `purgeDeleted()` (CLI: `boilauth purge-deleted <days>`) finishes later.
  * records = anonymize: instead of removing the user row, the final step keeps
  *       it and strips everything personal (D6), so payment and audit rows that
@@ -19,7 +21,7 @@
  *       password hashes and no session tokens.
  */
 import { getCurrentAdapter, type BetterAuthPlugin } from "better-auth";
-import { APIError, createAuthEndpoint, sessionMiddleware } from "better-auth/api";
+import { APIError, createAuthEndpoint, createAuthMiddleware, sessionMiddleware } from "better-auth/api";
 import * as z from "zod";
 import {
   anonymizeUser,
@@ -44,6 +46,12 @@ export interface AccountDeletionOptions {
 }
 
 export const DELETION_PLUGIN_ID = "boilauth-deletion";
+
+const PASSWORD_SIGN_IN = {
+  "/sign-in/email": { code: "INVALID_EMAIL_OR_PASSWORD", message: "Invalid email or password" },
+  "/sign-in/username": { code: "INVALID_USERNAME_OR_PASSWORD", message: "Invalid username or password" },
+  "/sign-in/phone-number": { code: "INVALID_PHONE_NUMBER_OR_PASSWORD", message: "Invalid phone number or password" },
+} as const;
 
 export function accountDeletion(o: AccountDeletionOptions) {
   const soft = o.mode === "soft";
@@ -126,6 +134,20 @@ export function accountDeletion(o: AccountDeletionOptions) {
       ? {
           schema: {
             user: { fields: { deletedAt: { type: "date", required: false, input: false, returned: false } } },
+          },
+          hooks: {
+            after: [
+              {
+                // The password was right but the session hook refused a soft-deleted user: answer as
+                // for a wrong password (this module's session hook is what refuses on these paths).
+                matcher: (ctx: any) => PASSWORD_SIGN_IN[ctx.path as keyof typeof PASSWORD_SIGN_IN] !== undefined,
+                handler: createAuthMiddleware(async (ctx) => {
+                  const r = ctx.context.returned as { body?: { code?: string } } | undefined;
+                  if (!(r instanceof APIError) || r.body?.code !== "FAILED_TO_CREATE_SESSION") return;
+                  throw APIError.from("UNAUTHORIZED", PASSWORD_SIGN_IN[ctx.path as keyof typeof PASSWORD_SIGN_IN]);
+                }),
+              },
+            ],
           },
         }
       : {}),

@@ -22,7 +22,6 @@ test("{{ACCOUNT_MAX}} wrong passwords from many sources: unknown sources are loc
   assert.equal(stranger.json.code, "INVALID_EMAIL_OR_PASSWORD");
   assert.equal((await h.call(auth, "/sign-in/email", { body: { email, password: h.PW }, ip: home })).status, 200, "the known device still gets in");
 
-  const ctx = await auth.$context;
-  const row = (await ctx.internalAdapter.findUserByEmail(email))!.user as unknown as { id: string; lockedUntil: Date };
-  assert.equal(row.lockedUntil, null, "a success clears the account lock");
+  const again = await h.call(auth, "/sign-in/email", { body: { email, password: h.PW } });
+  assert.equal(again.status, 401, "the owner's sign-in does not reopen the account for unknown sources");
 });

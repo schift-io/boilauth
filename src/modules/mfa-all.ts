@@ -15,7 +15,11 @@
  *                    ?twoFactorRedirect=true; your page shows the code form
  *
  * The trusted-device cookie is not honoured on these paths: a link or code
- * already proves only the mailbox or the phone.
+ * already proves only the mailbox or the phone. For the same reason the email
+ * code of the twoFactor plugin (/two-factor/send-otp, /two-factor/verify-otp)
+ * is refused for such a challenge (403 SECOND_FACTOR_NOT_ALLOWED): whoever
+ * opened the magic link has the mailbox the code goes to (re-audit C3). TOTP
+ * or a backup code finishes it; a password sign-in may still end with the code.
  *
  * Every Better Auth 1.7.6 endpoint that calls setSessionCookie, and why it is
  * or is not in PASSWORDLESS (re-audit L2):
@@ -30,18 +34,26 @@
  *                     /two-factor/* (the second factor itself)
  *   new user          /sign-up/email (no second factor can be enrolled yet)
  *   admin action      /admin/impersonate-user, /admin/stop-impersonating
- *   not offered       anonymous, multi-session, one-time-token, oauth-proxy, siwe —
- *                     add their sign-in paths here if you turn those plugins on.
+ *   not offered       anonymous, multi-session, one-time-token, oauth-proxy (sessions
+ *                     from an existing sign-in or a guest); siwe (/siwe/verify) and
+ *                     device-authorization (/device/token: createSession with a bearer
+ *                     token, no cookie, so newSession stays empty here) issue a first-
+ *                     factor session and are refused at startup with twoFactor
+ *                     (createBoilAuth). passkey and sso are separate packages.
  * When the request already carries a valid session of the same user (it passed
  * the second factor then), that session is kept: a refresh passes through, and a
  * second session created next to it is dropped in its favour.
  */
 import type { BetterAuthPlugin } from "better-auth";
-import { createAuthMiddleware } from "better-auth/api";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 import { deleteSessionCookie, setSessionCookie } from "better-auth/cookies";
 import { generateRandomString } from "better-auth/crypto";
 
 export const MFA_ALL_PLUGIN_ID = "boilauth-mfa-all-sign-ins";
+
+const EMAIL_SECOND_STEP = new Set(["/two-factor/send-otp", "/two-factor/verify-otp"]);
+/** Verification row marking a challenge that began without a password. */
+const passwordlessMark = (identifier: string) => `2fa-passwordless-${identifier}`;
 
 const PASSWORDLESS = new Set([
   "/magic-link/verify",
@@ -60,6 +72,22 @@ export function mfaOnAllSignIns(o: { challengeSeconds?: number } = {}): BetterAu
   return {
     id: MFA_ALL_PLUGIN_ID,
     hooks: {
+      before: [
+        {
+          matcher: (ctx) => EMAIL_SECOND_STEP.has(ctx.path ?? ""),
+          handler: createAuthMiddleware(async (ctx) => {
+            const cookie = ctx.context.createAuthCookie("two_factor");
+            const identifier = await ctx.getSignedCookie(cookie.name, ctx.context.secret);
+            if (!identifier) return;
+            if (await ctx.context.internalAdapter.findVerificationValue(passwordlessMark(identifier))) {
+              throw APIError.from("FORBIDDEN", {
+                code: "SECOND_FACTOR_NOT_ALLOWED",
+                message: "After a sign-in link or code, finish with your authenticator app or a backup code",
+              });
+            }
+          }),
+        },
+      ],
       after: [
         {
           matcher: (ctx) => PASSWORDLESS.has(ctx.path ?? ""),
@@ -81,6 +109,7 @@ export function mfaOnAllSignIns(o: { challengeSeconds?: number } = {}): BetterAu
             const expiresAt = new Date(Date.now() + maxAge * 1000);
             await ctx.context.internalAdapter.createVerificationValue({ value: data.user.id, identifier, expiresAt });
             await ctx.context.internalAdapter.createVerificationValue({ value: "0", identifier: `2fa-attempts-${identifier}`, expiresAt });
+            await ctx.context.internalAdapter.createVerificationValue({ value: ctx.path ?? "", identifier: passwordlessMark(identifier), expiresAt });
             await ctx.setSignedCookie(cookie.name, identifier, ctx.context.secret, cookie.attributes);
 
             // A redirect comes back as an APIError-like object (not always this module's APIError class).

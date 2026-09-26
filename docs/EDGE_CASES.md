@@ -130,8 +130,11 @@ Either way a verification mail is sent on sign-up. Import merges always need ver
 The lockout has two layers since 0.3.0 (audit F4: a plain account lock after 5 wrong passwords let
 anyone lock the owner out, forever, from any IPs). One source is locked for this account after
 `maxFailures`; the account refuses sources without a successful sign-in in the last 90 days after
-`accountMaxFailures` (ASVS 2.2.1: at most 100 failures per hour per account). A success clears both
-for that source and records it as known (hashed, `user.knownSignInSources`, last 10).
+`accountMaxFailures` wrong passwords from unknown sources (ASVS 2.2.1: at most 100 failures per hour
+per account). A known source's own typos count only toward its per-source lock. A success clears the
+per-source counter for that source and records it as known (hashed, `user.knownSignInSources`, last
+10); it does not clear the account-wide count or lock, which end after `lockMinutes` and restart when
+a lock engages (re-audit C8).
 
 Send endpoints are `/request-password-reset`, `/send-verification-email`, `/sign-in/magic-link`,
 `/email-otp/send-verification-otp`, `/email-otp/request-password-reset`, `/forget-password/email-otp`,
@@ -150,9 +153,10 @@ A fresh session token on every sign-in and ending all sessions on password reset
 | Code by email as the second step | `mfa.emailOtp` | yes / **no** (6 digits, 5 minutes, 3 tries, stored hashed) | better-auth `twoFactor` otp | H4 |
 | Second factor after passwordless sign-in too | `mfa.allSignIns` | **yes** (magic link, email/SMS code, OAuth, and email verification with auto sign-in, of a two-factor user answer `twoFactorRedirect`) / no | `boilauth/mfa-all` | H3 |
 
-An email code (H4) is an alternative second step for normal sign-in only; admin endpoints under
-`totp_required_admin` still need TOTP or a backup code. Email-code sign-in (B4), like magic link,
-has no second step and never satisfies the admin requirement.
+An email code (H4) is an alternative second step after a password only: after a magic link, email
+or SMS code, OAuth or email verification (H3) it is refused with 403 `SECOND_FACTOR_NOT_ALLOWED`, since
+whoever opened the link holds the mailbox the code goes to (re-audit C3); TOTP or a backup code
+finishes those. Admin endpoints under `totp_required_admin` still need TOTP or a backup code.
 
 `totp_required_admin` is offered only when roles are on. Admin endpoints then need a session that passed TOTP; an admin without TOTP gets 403 `MFA_REQUIRED`.
 
@@ -171,7 +175,7 @@ Stops at roles. No attribute or policy engine.
 
 | Case | Policy key | Choices | Module | Spec |
 |---|---|---|---|---|
-| Password changed or reset, two-factor on/off, account-wide lock | `notify.securityChanges` | **yes** / no | `boilauth` security notices | F9 |
+| Password changed or reset (also by an admin), two-factor on/off, phone number attached, account-wide lock | `notify.securityChanges` | **yes** / no | `boilauth` security notices | F9 |
 | Sign-in from a device (IP) not seen in the last 90 days | `notify.newDevice` | yes / **no** (asked with email + password) | `boilauth` security notices | F9 |
 
 The transparent rehash at sign-in and imports are not password changes. The first sign-in ever is not a new device.
@@ -229,6 +233,8 @@ service reading the database knows the shape without guessing.
 
 | Asked for | Status | Reason |
 |---|---|---|
+| `device-authorization`, `siwe` with two-factor | refused at startup | `/device/token` and `/siwe/verify` issue a session outside the second-factor check; with twoFactor on, `createBoilAuth` throws. |
+| SSO (SAML/OIDC, `@better-auth/sso`) | not offered | Separate package; needs an identity provider in the generated-project test. |
 | Passkey | not offered | Lives in the separate `@better-auth/passkey` package. A real test needs a browser WebAuthn authenticator (Playwright + Chromium's virtual authenticator); putting that in every generated project is too heavy, and a repo-only test would break "every choice has a generated-project test". |
 | Phone sign-up without an email | not offered | Better Auth's `signUpOnVerification` invents a placeholder email per number; the rest of the kit (verification, import merge, export) keys on real emails. |
 | Drizzle / Prisma adapters | not offered | Both need the ORM's own schema generation step; no generated-project test covers it yet. The built-in adapter covers SQLite and Postgres. |

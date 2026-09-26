@@ -147,7 +147,7 @@ export function authFile(a: Answers): string {
   if (a.mfa.mode !== "off" && !a.mfa.allSignIns) opts.push("mfaOnAllSignIns: false");
   if (!a.notify.securityChanges || a.notify.newDevice) {
     const on = a.notify.securityChanges;
-    opts.push(`securityNotices: { passwordChanged: ${on}, mfaChanged: ${on}, accountLocked: ${on}, newDevice: ${a.notify.newDevice && a.signIn.emailPassword} }`);
+    opts.push(`securityNotices: { passwordChanged: ${on}, mfaChanged: ${on}, accountLocked: ${on}, newDevice: ${a.notify.newDevice && a.signIn.emailPassword}, phoneChanged: ${on} }`);
   }
   const extraBetterAuth = oauth.includes("apple")
     ? '{ trustedOrigins: ["https://appleid.apple.com"], ...d.betterAuth }'
