@@ -10,5 +10,6 @@ export function enabledModulesFor(a: Answers): SchemaModule[] {
   if (a.roles.mode === "organizations") out.push("organization");
   if (a.deletion.mode === "soft") out.push("soft-delete");
   if (a.signIn.emailPassword && a.signIn.username) out.push("username");
+  if (a.signIn.phone) out.push("phone-number");
   return out;
 }

@@ -24,7 +24,7 @@ export interface Answers {
     audience: (typeof AUDIENCES)[number];
   };
   runtime: { database: "sqlite" | "postgres" };
-  signIn: { emailPassword: boolean; username: boolean; magicLink: boolean; emailOtp: boolean; oauth: OAuthProvider[] };
+  signIn: { emailPassword: boolean; username: boolean; magicLink: boolean; emailOtp: boolean; phone: boolean; oauth: OAuthProvider[] };
   migration: {
     sources: MigrationSource[];
     firebase: { keyId: string; saltSeparator: string; rounds: number; memCost: number };
@@ -44,7 +44,7 @@ export const DEFAULT_ANSWERS: Answers = {
   version: 1,
   situation: { existingUsers: false, currentSignIn: ["email_password"], sourceVerifiedEmail: "yes", audience: "b2c" },
   runtime: { database: "sqlite" },
-  signIn: { emailPassword: true, username: false, magicLink: false, emailOtp: false, oauth: [] },
+  signIn: { emailPassword: true, username: false, magicLink: false, emailOtp: false, phone: false, oauth: [] },
   migration: { sources: [], firebase: { keyId: "firebase", saltSeparator: "Bw==", rounds: 8, memCost: 14 } },
   email: { verification: "required" },
   linking: { mode: "verified_only" },

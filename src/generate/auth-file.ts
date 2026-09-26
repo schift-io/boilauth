@@ -83,7 +83,7 @@ export function authFile(a: Answers): string {
   oauth: Record<${oauth.map((p) => JSON.stringify(p)).join(" | ")}, { clientId: string; clientSecret: string }>;\n`
     : "";
   const imports = [
-    'import { createBoilAuth, type BoilAuthOptions, type EmailMessage } from "boilauth";',
+    `import { createBoilAuth, type BoilAuthOptions, type EmailMessage${a.signIn.phone ? ", type SmsMessage" : ""} } from "boilauth";`,
     ...(bePlugins.length ? [`import { ${bePlugins.join(", ")} } from "better-auth/plugins";`] : []),
     ...(username ? ['import type { UsernameRules } from "boilauth/username";'] : []),
     ...lines,
@@ -105,6 +105,7 @@ export function authFile(a: Answers): string {
   }
   if (a.migration.sources.includes("firebase")) opts.push("firebaseKeys: d.firebaseKeys");
   if (username) opts.push("username: d.usernameRules");
+  if (a.signIn.phone) opts.push("phone: { sendSms: d.sms }");
   if (oauth.length) {
     opts.push(`accountLinking: ${JSON.stringify(a.linking.mode)}`);
     opts.push("socialProviders: d.oauth");
@@ -124,7 +125,7 @@ export interface AuthDeps {
   baseURL: string;
   /** Sends verification, reset${a.signIn.magicLink ? ", magic link" : ""}${a.signIn.emailOtp ? ", one-time code" : ""}${a.roles.mode === "organizations" ? ", invitation" : ""} mail. See src/email.ts. */
   email: (msg: EmailMessage) => Promise<void>;
-${a.migration.sources.includes("firebase") ? '  firebaseKeys?: BoilAuthOptions["firebaseKeys"];\n' : ""}${username ? "  /** boilauth.username.yaml, loaded with loadUsernameRules(). */\n  usernameRules: UsernameRules;\n" : ""}${oauthType}  betterAuth?: BoilAuthOptions["betterAuth"];
+${a.signIn.phone ? "  /** Sends SMS codes. See src/sms.ts. */\n  sms: (msg: SmsMessage) => Promise<void>;\n" : ""}${a.migration.sources.includes("firebase") ? '  firebaseKeys?: BoilAuthOptions["firebaseKeys"];\n' : ""}${username ? "  /** boilauth.username.yaml, loaded with loadUsernameRules(). */\n  usernameRules: UsernameRules;\n" : ""}${oauthType}  betterAuth?: BoilAuthOptions["betterAuth"];
 }
 
 export function createAuth(d: AuthDeps) {
@@ -170,7 +171,7 @@ export function configFile(a: Answers): string {
   const usernameDep = username ? '  usernameRules: loadUsernameRules(new URL("./boilauth.username.yaml", import.meta.url)),\n' : "";
   return `${HEADER}// The instance your app mounts and the boilauth CLI uses (--config boilauth.config.ts).
 ${db}${usernameImport}import { createAuth } from "./src/auth.js";
-import { sendEmail } from "./src/email.js";
+import { sendEmail } from "./src/email.js";${a.signIn.phone ? '\nimport { sendSms } from "./src/sms.js";' : ""}
 
 function need(name: string): string {
   const v = process.env[name];
@@ -183,7 +184,7 @@ export default createAuth({
   secret: need("BOILAUTH_SECRET"),
   baseURL: process.env.BOILAUTH_URL ?? "http://localhost:3000",
   email: sendEmail,
-${firebase}${usernameDep}${oauth}});
+${a.signIn.phone ? "  sms: sendSms,\n" : ""}${firebase}${usernameDep}${oauth}});
 `;
 }
 
@@ -215,6 +216,19 @@ export const roles = {
   user: ac.newRole({ ...userAc.statements, project: ["read"] }),
 ${extra.map((r) => `  ${JSON.stringify(r)}: ac.newRole({ project: ["read", "update"] }),`).join("\n")}
 };
+`;
+}
+
+export function smsFile(): string {
+  return `// Generated once by \`boilauth init\`. Yours to edit: connect your SMS provider here.
+import type { SmsMessage } from "boilauth";
+
+export async function sendSms(msg: SmsMessage): Promise<void> {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("src/sms.ts: connect an SMS provider before production");
+  }
+  console.log(\`[sms to \${msg.to}] \${msg.text}\`);
+}
 `;
 }
 

@@ -1,0 +1,14 @@
+export const smsOutbox: { to: string; text: string }[] = [];
+
+/** The newest code texted to `to`. */
+export function lastSms(to: string): string {
+  const m = [...smsOutbox].reverse().find((x) => x.to === to);
+  if (!m) throw new Error(`no sms to ${to}`);
+  return /\b(\d{4,10})\b/.exec(m.text)![1];
+}
+
+let phoneN = 0;
+/** A fresh E.164 number (+82 10 ...). */
+export function newPhone(): string {
+  return `+8210${String(Date.now() % 1e4).padStart(4, "0")}${String(++phoneN).padStart(4, "0")}`;
+}

@@ -1,0 +1,16 @@
+{
+  "module": "phone-number",
+  "version": 1,
+  "tables": {
+    "user": {
+      "phoneNumber": {
+        "type": "string",
+        "required": false
+      },
+      "phoneNumberVerified": {
+        "type": "boolean",
+        "required": false
+      }
+    }
+  }
+}

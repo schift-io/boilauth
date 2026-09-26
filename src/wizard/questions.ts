@@ -91,6 +91,10 @@ export const QUESTIONS: Question[] = [
   { key: "signIn.magicLink", group: "B. Sign-in", type: "confirm", message: "Magic link sign-in by email?" },
   { key: "signIn.emailOtp", group: "B. Sign-in", type: "confirm", message: "Sign-in with a one-time code by email? (6 digits, 5 minutes, 3 tries)" },
   {
+    key: "signIn.phone", group: "B. Sign-in", type: "confirm",
+    message: "Phone numbers too? (users attach one by SMS code, then sign in by SMS code or number + password; you connect the SMS sender in src/sms.ts)",
+  },
+  {
     key: "signIn.oauth", group: "B. Sign-in", type: "multiselect",
     message: "OAuth providers (space to toggle, none is fine)",
     options: OAUTH_OPTIONS,

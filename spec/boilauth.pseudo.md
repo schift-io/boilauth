@@ -172,6 +172,14 @@ otpOptions { digits 6, period 5 min, allowedAttempts 3, storeOTP hashed, sendOTP
 POST /two-factor/send-otp then /two-factor/verify-otp. Not in boilauth/mfa VERIFY_PATHS on purpose:
 an email code does not satisfy [H2].
 
+## [B5] Phone numbers — `src/modules/phone.ts`, better-auth `phoneNumber`
+createBoilAuth({ phone: { sendSms } }) -> phoneNumber({ otpLength 6, expiresIn 300, allowedAttempts 3,
+  requireVerification true, phoneNumberValidator E.164, sendOTP -> sendSms }).
+Attach: signed in, POST /phone-number/send-otp then /phone-number/verify {updatePhoneNumber: true}.
+Sign in: /phone-number/verify for a known number (no second step, like magic link), or
+/sign-in/phone-number {phoneNumber, password} (TOTP [H1], lockout [L1], rehash [R1], rate limit [L2]).
+Schema module `phone-number` adds user.phoneNumber (unique) and user.phoneNumberVerified.
+
 ## [U1] Username sign-in — `src/modules/username.ts`, better-auth `username`
 Rules live in boilauth.username.yaml (written once by init, then the developer's):
 minLength, maxLength, pattern (whole-name regex), reserved (case-insensitive), caseInsensitive, immutable.

@@ -5,6 +5,7 @@
  * part of the contract and may move between minor versions.
  */
 export { createBoilAuth, boilAuthOptions, PRESETS, type BoilAuth, type BoilAuthOptions, type EmailMessage } from "./auth.js";
+export type { SmsMessage } from "./modules/phone.js";
 export {
   createPasswordHasher,
   hashKind,

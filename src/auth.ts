@@ -13,6 +13,7 @@ import { admin, username as usernamePlugin } from "better-auth/plugins";
 import { createPasswordHasher, type Argon2Params, type FirebaseProjectKey } from "./hash/index.js";
 import { boilauthPlugin, type LockoutOptions } from "./plugin.js";
 import { normalizeUsername, usernamePluginOptions, type UsernameRules } from "./modules/username.js";
+import { phonePlugin, type PhoneOptions } from "./modules/phone.js";
 
 export const PRESETS = {
   minPasswordLength: 10,
@@ -69,6 +70,8 @@ export interface BoilAuthOptions {
    * rate limit cover this path as they cover /sign-in/email.
    */
   username?: UsernameRules;
+  /** Phone number sign-in (SMS codes, number + password) with boilauth's presets; see boilauth/phone. */
+  phone?: PhoneOptions;
   /** Better Auth's admin plugin (role column). Default true; set false for no roles, or pass your own admin() in plugins. */
   admin?: boolean;
   /** Extra plugins, in order, after boilauth's own. */
@@ -142,6 +145,7 @@ export function boilAuthOptions(o: BoilAuthOptions) {
         ...PRESETS.rateLimit.customRules,
         "/sign-in/email": { window: 60, max: signInPerMinute },
         ...(o.username ? { "/sign-in/username": { window: 60, max: signInPerMinute } } : {}),
+        ...(o.phone ? { "/sign-in/phone-number": { window: 60, max: signInPerMinute } } : {}),
       },
       ...extra.rateLimit,
     },
@@ -159,8 +163,10 @@ export function boilAuthOptions(o: BoilAuthOptions) {
         lockout: { ...PRESETS.lockout, ...o.lockout },
         now: o.now,
         ...(o.username ? { normalizeUsername: (u: string) => normalizeUsername(o.username!, u) } : {}),
+        phoneSignIn: Boolean(o.phone),
       }),
       ...(o.username ? [usernamePlugin(usernamePluginOptions(o.username))] : []),
+      ...(o.phone ? [phonePlugin(o.phone)] : []),
       ...(wantsAdmin ? [admin()] : []),
       ...userPlugins,
       ...(extra.plugins ?? []),

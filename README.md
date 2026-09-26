@@ -64,7 +64,10 @@ they set the defaults of the policy questions, which are all still asked.
 |---|---|---|
 | A | `runtime.database` | **sqlite** / postgres |
 | B | `signIn.emailPassword` | **yes** / no |
+| B | `signIn.username` | yes / **no** (rules in `boilauth.username.yaml`, see below) |
 | B | `signIn.magicLink` | yes / **no** |
+| B | `signIn.emailOtp` | yes / **no** (6-digit mailed code, 5 min, 3 tries, stored hashed) |
+| B | `signIn.phone` | yes / **no** (SMS codes and number + password; your sender in `src/sms.ts`) |
 | B | `signIn.oauth` | google, github, apple, kakao, naver (**none**) |
 | C | `migration.firebase.keyId`, `.saltSeparator`, `.rounds`, `.memCost` | **firebase**, **Bw==**, **8**, **14** (asked only with firebase) |
 | D | `email.verification` | **required** / optional |
@@ -80,6 +83,8 @@ they set the defaults of the policy questions, which are all still asked.
 | I | `roles.custom` | **admin,editor,user** (asked with custom) |
 | I | `roles.orgCreation` | **any_user** / admin_only (asked with organizations) |
 | H | `mfa.mode` | **off** / totp_optional / totp_required_admin (the last needs roles) |
+| H | `mfa.backupCodes` | **10** (5..20, each usable once) |
+| H | `mfa.emailOtp` | yes / **no** (a mailed code as the second step; admin access still needs TOTP or a backup code) |
 | J | `deletion.mode` | **hard** / soft |
 | J | `deletion.export` | **yes** / no |
 
@@ -107,8 +112,7 @@ Google with a mocked token endpoint; the other providers are checked up to the
 authorize redirect.
 
 Better Auth 1.7.6 plugins the wizard does not offer yet (each needs a generated-project
-test before it becomes a choice): `username`, `phone-number`, `email-otp`, two-factor
-email/SMS OTP and backup codes, `anonymous`, `bearer`, `jwt`, API keys, `one-time-token`,
+test before it becomes a choice): `anonymous`, `bearer`, `jwt`, API keys, `one-time-token`,
 `multi-session`, `captcha`, `one-tap`, `siwe`, `device-authorization`, `generic-oauth`
 (any OIDC provider), `last-login-method`, `custom-session`, `additional-fields`,
 `oauth-proxy`, and the separate passkey and SSO packages. You can still add any of them
@@ -133,6 +137,29 @@ per minute would be the limit for *everyone*. Behind a proxy, pass
 `trustedProxies: ["10.0.0.0/8", …]`; with a different header, set
 `betterAuth: { advanced: { ipAddress: { ipAddressHeaders: ["cf-connecting-ip"] } } }`.
 Every Better Auth option can still be overridden through `betterAuth: {...}`.
+
+## Username rules
+
+With `signIn.username` on, `init` writes `boilauth.username.yaml` once; after that it is
+your file (init leaves it alone). The generated config loads it at startup, and a bad
+value stops startup with the key named. The generated tests read the same file, so they
+keep checking whatever you change it to.
+
+```yaml
+minLength: 3
+maxLength: 30
+pattern: "^[a-zA-Z0-9_.]+$"   # whole username, anchored
+reserved:                     # compared case-insensitively
+  - admin
+  - support
+caseInsensitive: true         # "Alice" and "alice" are one username; typed casing kept as displayUsername
+immutable: false              # true: a username cannot change once set
+```
+
+Username, phone + password and email sign-in share one lockout counter per account and
+the same per-IP sign-in limit. Sign-in by magic link, email code, SMS code or OAuth has
+no second step, even for a user with TOTP enrolled, and never satisfies
+`totp_required_admin`.
 
 ## Migration guides
 
@@ -233,6 +260,8 @@ tables or columns is its own module with a pinned file:
 | mfa-admin | mfa = totp_required_admin | [`schema/mfa-admin.v1.json`](schema/mfa-admin.v1.json) |
 | organization | roles = organizations | [`schema/organization.v1.json`](schema/organization.v1.json) |
 | soft-delete | deletion = soft | [`schema/soft-delete.v1.json`](schema/soft-delete.v1.json) |
+| username | signIn.username | [`schema/username.v1.json`](schema/username.v1.json) |
+| phone-number | signIn.phone | [`schema/phone-number.v1.json`](schema/phone-number.v1.json) |
 
 `migrate` writes the enabled modules and versions into the `boilauthModule` table,
 so anything reading your auth database learns the shape from the database itself.
@@ -263,7 +292,7 @@ A test fails if any module's live columns drift from its file.
 ## Tests
 
 ```bash
-npm test                                           # SQLite, in-memory; also generates 6 projects and runs their tests
+npm test                                           # SQLite, in-memory; also generates 8 projects and runs their tests
 BOILAUTH_PG_URL=postgres://… npm test              # also runs the Postgres paths (empty scratch DB)
 ```
 
@@ -275,5 +304,5 @@ see [`fixtures/README.md`](fixtures/README.md). Behaviour spec:
 
 - Hosted advisory feed and dashboard
 - Other source formats (Clerk, Cognito, Auth0 custom hashes, PBKDF2/SHA variants)
-- Passkeys, Drizzle / Prisma adapters
+- Passkeys (needs a browser WebAuthn authenticator in the generated tests), Drizzle / Prisma adapters
 - Python package

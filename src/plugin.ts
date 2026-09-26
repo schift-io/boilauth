@@ -13,8 +13,8 @@
  *    Firebase scrypt, or weaker argon2 params) it is replaced with a fresh
  *    argon2id hash of the password the user just proved.
  *
- * Both cover POST /sign-in/email and, with username sign-in on, POST
- * /sign-in/username (the account is found by the normalized username).
+ * Both cover POST /sign-in/email and, when on, POST /sign-in/username (the
+ * account is found by the normalized username) and POST /sign-in/phone-number.
  *
  * Known limit: the failure counter is read-modify-write, so N parallel wrong
  * attempts can count as fewer than N. The IP rate limiter bounds the burst.
@@ -34,28 +34,36 @@ export interface BoilauthPluginOptions {
   now?: () => Date;
   /** Set when username sign-in is on: the username plugin's normalization. */
   normalizeUsername?: (username: string) => string;
+  /** Phone number sign-in is on: lockout and rehash cover /sign-in/phone-number. */
+  phoneSignIn?: boolean;
 }
 
 const SIGN_IN = "/sign-in/email";
 const SIGN_IN_USERNAME = "/sign-in/username";
+const SIGN_IN_PHONE = "/sign-in/phone-number";
 
 function invalidCredentials(path: string): APIError {
-  return path === SIGN_IN_USERNAME
-    ? APIError.from("UNAUTHORIZED", { code: "INVALID_USERNAME_OR_PASSWORD", message: "Invalid username or password" })
-    : APIError.from("UNAUTHORIZED", { code: "INVALID_EMAIL_OR_PASSWORD", message: "Invalid email or password" });
+  if (path === SIGN_IN_USERNAME) return APIError.from("UNAUTHORIZED", { code: "INVALID_USERNAME_OR_PASSWORD", message: "Invalid username or password" });
+  if (path === SIGN_IN_PHONE) return APIError.from("UNAUTHORIZED", { code: "INVALID_PHONE_NUMBER_OR_PASSWORD", message: "Invalid phone number or password" });
+  return APIError.from("UNAUTHORIZED", { code: "INVALID_EMAIL_OR_PASSWORD", message: "Invalid email or password" });
 }
 
 type LockFields = { id: string; failedLoginCount?: number | null; lockedUntil?: Date | null };
 
 export function boilauthPlugin(opts: BoilauthPluginOptions) {
   const now = opts.now ?? (() => new Date());
-  const isSignIn = (path: string | undefined) => path === SIGN_IN || (Boolean(opts.normalizeUsername) && path === SIGN_IN_USERNAME);
+  const isSignIn = (path: string | undefined) =>
+    path === SIGN_IN || (Boolean(opts.normalizeUsername) && path === SIGN_IN_USERNAME) || (Boolean(opts.phoneSignIn) && path === SIGN_IN_PHONE);
   /** The account a sign-in attempt names, or null. Raw row: lock fields are not returned by default. */
   const target = async (ctx: any): Promise<LockFields | null> => {
     if (ctx.path === SIGN_IN_USERNAME) {
       const name = typeof ctx.body?.username === "string" ? ctx.body.username : "";
       if (!name || !opts.normalizeUsername) return null;
       return ctx.context.adapter.findOne({ model: "user", where: [{ field: "username", value: opts.normalizeUsername(name) }] });
+    }
+    if (ctx.path === SIGN_IN_PHONE) {
+      const phone = typeof ctx.body?.phoneNumber === "string" ? ctx.body.phoneNumber : "";
+      return phone ? ctx.context.adapter.findOne({ model: "user", where: [{ field: "phoneNumber", value: phone }] }) : null;
     }
     const email = typeof ctx.body?.email === "string" ? ctx.body.email.toLowerCase() : "";
     if (!email) return null;

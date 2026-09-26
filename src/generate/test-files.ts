@@ -70,6 +70,7 @@ async function testDatabase(): Promise<AuthDeps["database"]> {
   const extra: string[] = [];
   if (a.migration.sources.includes("firebase")) extra.push("    firebaseKeys: [FIREBASE_SAMPLE_KEY],");
   if (username) extra.push("    usernameRules: USERNAME_RULES,");
+  if (a.signIn.phone) extra.push("    sms: async (m) => {\n      smsOutbox.push(m);\n    },");
   if (a.signIn.oauth.length || signInKind(a) === "google") {
     extra.push(
       `    oauth: { ${a.signIn.oauth.map((p) => `${p}: { clientId: "test-${p}-id", clientSecret: "test-${p}-secret" }`).join(", ")} } as AuthDeps["oauth"],`,
@@ -78,6 +79,7 @@ async function testDatabase(): Promise<AuthDeps["database"]> {
   let signInHelpers = tpl(`signin-${signInKind(a)}`, a.signIn.emailPassword ? { VERIFICATION_REQUIRED: a.email.verification === "required" } : {});
   if (a.signIn.oauth.length) signInHelpers = tpl("oauth-helpers") + "\n" + signInHelpers;
   if (a.signIn.emailOtp) signInHelpers = tpl("code-helpers") + "\n" + signInHelpers;
+  if (a.signIn.phone) signInHelpers = tpl("sms-helpers") + "\n" + signInHelpers;
   const firebaseKey = a.migration.sources.includes("firebase")
     ? `/** Public sample params from the firebase/scrypt README, not a real project key. */
 export const FIREBASE_SAMPLE_KEY = {
@@ -146,10 +148,20 @@ export function testFile(a: Answers): string {
     if (a.lockout.maxFailures > 0) blocks.push(tpl("lockout", { MAX_FAILURES: a.lockout.maxFailures, LOCK_MIN: a.lockout.minutes }));
     if (a.password.breachedCheck === "hibp") blocks.push(tpl("hibp"));
     for (const s of a.migration.sources) blocks.push(tpl(`migration-${s}`));
-    if (a.signIn.username) blocks.push(tpl("username", { LOCKOUT_ON: a.lockout.maxFailures > 0, MAX_FAILURES: a.lockout.maxFailures }));
+    if (a.signIn.username) {
+      blocks.push(tpl("username"));
+      if (a.lockout.maxFailures > 0) blocks.push(tpl("username-lockout", { MAX_FAILURES: a.lockout.maxFailures }));
+    }
   }
   if (a.signIn.magicLink) blocks.push(tpl("magic"));
   if (a.signIn.emailOtp) blocks.push(tpl("email-otp"));
+  if (a.signIn.phone) {
+    blocks.push(tpl("phone"));
+    if (pw) {
+      const lock = a.lockout.maxFailures > 0 ? tpl("phone-lockout", { MAX_FAILURES: a.lockout.maxFailures }) : "";
+      blocks.push(tpl("phone-password", { PHONE_LOCKOUT: lock }));
+    }
+  }
   if (a.signIn.oauth.length) {
     const hosts = Object.fromEntries(a.signIn.oauth.map((p) => [p, OAUTH_HOSTS[p]]));
     blocks.push(tpl("oauth", { OAUTH_HOSTS: JSON.stringify(hosts) }));
@@ -177,6 +189,16 @@ export function testFile(a: Answers): string {
   assert.equal((await h.call(auth, "/admin/list-users", { jar: otpJar })).status, 403, "email code session skipped TOTP");
 `
       : "";
+    const phone = a.signIn.phone
+      ? `  const phone = h.newPhone();
+  await h.call(auth, "/phone-number/send-otp", { body: { phoneNumber: phone }, jar: plain });
+  assert.equal((await h.call(auth, "/phone-number/verify", { body: { phoneNumber: phone, code: h.lastSms(phone), updatePhoneNumber: true }, jar: plain })).status, 200);
+  await h.call(auth, "/phone-number/send-otp", { body: { phoneNumber: phone } });
+  const smsJar: h.Jar = new Map();
+  assert.equal((await h.call(auth, "/phone-number/verify", { body: { phoneNumber: phone, code: h.lastSms(phone) }, jar: smsJar })).status, 200);
+  assert.equal((await h.call(auth, "/admin/list-users", { jar: smsJar })).status, 403, "SMS code session skipped TOTP");
+`
+      : "";
     const magic = a.signIn.magicLink
       ? `  const viaLink = await h.call(auth, "/sign-in/magic-link", { body: { email, callbackURL: "/" } });
   assert.equal(viaLink.status, 200);
@@ -185,7 +207,7 @@ export function testFile(a: Answers): string {
   assert.equal((await h.call(auth, "/admin/list-users", { jar: linkJar })).status, 403, "magic link session skipped TOTP");
 `
       : "";
-    blocks.push(tpl("mfa-admin", { MFA_ADMIN_MAGIC: magic + otp }));
+    blocks.push(tpl("mfa-admin", { MFA_ADMIN_MAGIC: magic + otp + phone }));
   }
   blocks.push(rolesBlock(a));
   const deleteBody = pw ? "{ password: h.PW }" : "{}";

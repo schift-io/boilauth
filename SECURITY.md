@@ -17,6 +17,6 @@ which `npx boilauth check-updates --feed <url>` reads on request.
 
 ## Scope
 
-In scope: password verification and rehash, import/merge rules, lockout, role
-grant, SQLite export/import, and the presets this package sets on Better Auth.
+In scope: password verification and rehash, import/merge rules, lockout (email,
+username and phone sign-in), username rules, role grant, SQLite export/import, and the presets this package sets on Better Auth.
 Issues in Better Auth itself should go to the Better Auth project.

@@ -1,0 +1,34 @@
+/** A signed-in user with a verified phone number attached by SMS code. */
+async function withPhone(auth: h.Auth) {
+  const { email, jar } = await h.newUser(auth, "ph");
+  const phone = h.newPhone();
+  assert.equal((await h.call(auth, "/phone-number/send-otp", { body: { phoneNumber: phone }, jar })).status, 200);
+  const r = await h.call(auth, "/phone-number/verify", { body: { phoneNumber: phone, code: h.lastSms(phone), updatePhoneNumber: true }, jar });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.equal(r.json.user.phoneNumberVerified, true);
+  return { email, phone };
+}
+
+test("phone: attach a number by SMS code, then sign in with a new SMS code; a code works once", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const { email, phone } = await withPhone(auth);
+  await h.call(auth, "/phone-number/send-otp", { body: { phoneNumber: phone } });
+  const code = h.lastSms(phone);
+  const jar: h.Jar = new Map();
+  assert.equal((await h.call(auth, "/phone-number/verify", { body: { phoneNumber: phone, code }, jar })).status, 200);
+  assert.equal((await h.currentSession(auth, jar))?.user.email, email);
+  assert.notEqual((await h.call(auth, "/phone-number/verify", { body: { phoneNumber: phone, code } })).status, 200, "code reused");
+});
+
+test("phone: numbers must be E.164; 3 wrong codes spend the code", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const bad = await h.call(auth, "/phone-number/send-otp", { body: { phoneNumber: "010-1234-5678" } });
+  assert.equal(bad.status, 400);
+  assert.equal(bad.json.code, "INVALID_PHONE_NUMBER");
+  const phone = h.newPhone();
+  await h.call(auth, "/phone-number/send-otp", { body: { phoneNumber: phone } });
+  const code = h.lastSms(phone);
+  const wrong = code === "000000" ? "111111" : "000000";
+  for (let i = 0; i < 3; i++) assert.notEqual((await h.call(auth, "/phone-number/verify", { body: { phoneNumber: phone, code: wrong } })).status, 200);
+  assert.notEqual((await h.call(auth, "/phone-number/verify", { body: { phoneNumber: phone, code } })).status, 200, "spent after 3 tries");
+});

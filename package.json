@@ -40,6 +40,10 @@
     "./username": {
       "types": "./dist/modules/username.d.ts",
       "default": "./dist/modules/username.js"
+    },
+    "./phone": {
+      "types": "./dist/modules/phone.d.ts",
+      "default": "./dist/modules/phone.js"
     }
   },
   "files": [

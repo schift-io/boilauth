@@ -46,10 +46,15 @@ Adapter is Better Auth's built-in Kysely adapter for both (not asked). Language 
 | Email + password | `signIn.emailPassword` | **yes** / no | core | P1 L1 R1 |
 | Username sign-in (needs email + password) | `signIn.username` | yes / **no**; rules in `boilauth.username.yaml` | better-auth `username` + `boilauth/username` | U1 |
 | Magic link by email | `signIn.magicLink` | yes / **no** | better-auth `magicLink` | B2 |
+| Phone numbers (attach by SMS code; sign in by SMS code, or number + password) | `signIn.phone` | yes / **no** (E.164 only, 6 digits, 5 minutes, 3 tries, verified numbers only; sender in `src/sms.ts`) | better-auth `phoneNumber` + `boilauth/phone` | B5 |
 | One-time code by email | `signIn.emailOtp` | yes / **no** (6 digits, 5 minutes, 3 tries, stored hashed) | better-auth `emailOTP` | B4 |
 | OAuth providers | `signIn.oauth` | multi: `google` `github` `apple` `kakao` `naver`, **none** | better-auth `socialProviders` | B3 |
 
-At least one method must be on. Magic link and OAuth sign-ins are outside the TOTP challenge (Better Auth's two-factor hook covers `/sign-in/email`); see H.
+At least one of email + password, magic link, email code or OAuth must be on (phone numbers attach to
+accounts made another way). The TOTP challenge covers `/sign-in/email`, `/sign-in/username` and
+`/sign-in/phone-number`. Magic link, email-code (B4), SMS-code (B5) and OAuth sign-ins have no second
+step, even for a user with TOTP enrolled; they never satisfy `totp_required_admin` (H2). Pick those
+methods knowing that.
 
 ## C. Migration source (only with existing users who sign in with email + password)
 
@@ -161,7 +166,8 @@ service reading the database knows the shape without guessing.
 
 | Asked for | Status | Reason |
 |---|---|---|
-| Passkey | not offered | Lives in the separate `@better-auth/passkey` package; an end-to-end test needs a WebAuthn authenticator emulator we do not have yet. |
+| Passkey | not offered | Lives in the separate `@better-auth/passkey` package. A real test needs a browser WebAuthn authenticator (Playwright + Chromium's virtual authenticator); putting that in every generated project is too heavy, and a repo-only test would break "every choice has a generated-project test". |
+| Phone sign-up without an email | not offered | Better Auth's `signUpOnVerification` invents a placeholder email per number; the rest of the kit (verification, import merge, export) keys on real emails. |
 | Drizzle / Prisma adapters | not offered | Both need the ORM's own schema generation step; no generated-project test covers it yet. The built-in adapter covers SQLite and Postgres. |
 | Python | not offered | Later, per owner. |
 | Importing users who only sign in with OAuth or magic link | not offered | The importers bring password hashes. Such users sign in again with the same provider; with `linking.mode = verified_only` a verified email links to an imported row only when one exists. |

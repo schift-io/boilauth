@@ -1,0 +1,11 @@
+test("username: wrong passwords by username count toward the account lockout", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const name = validName(Math.max(h.USERNAME_RULES.minLength, 6), "l" + Date.now().toString(36));
+  assert.equal((await signUpNamed(auth, name)).r.status, 200);
+  for (let i = 0; i < {{MAX_FAILURES}}; i++) {
+    assert.equal((await h.call(auth, "/sign-in/username", { body: { username: name, password: `wrong-${i}-pw` } })).status, 401);
+  }
+  const locked = await h.call(auth, "/sign-in/username", { body: { username: name, password: h.PW } });
+  assert.equal(locked.status, 401, "the right password is refused while locked");
+  assert.equal(locked.json.code, "INVALID_USERNAME_OR_PASSWORD");
+});
