@@ -34,6 +34,7 @@ const SCENARIOS: Record<string, { answers: Record<string, unknown>; postgres?: b
   },
   "custom-roles-admin-mfa-oauth": {
     answers: {
+      notify: { newDevice: true },
       network: { clientIp: "header", clientIpHeader: "cf-connecting-ip" },
       signIn: { emailPassword: true, magicLink: true, emailOtp: true, phone: true, oauth: ["google", "github", "apple", "kakao", "naver"] },
       migration: { sources: ["supabase", "auth0"] },

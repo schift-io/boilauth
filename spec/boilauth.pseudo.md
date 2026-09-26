@@ -281,3 +281,11 @@ session; on success -> sendEmail({ kind: "security.password_changed" }).
 user.twoFactorEnabled changes (update hook) -> security.mfa_changed (on / off).
 account-wide lock engages (L1) -> security.account_locked. Successful sign-in from a source missing from a
 non-empty knownSignInSources -> security.new_device (off by default). Send failures are logged, never thrown.
+
+## [H3] Second factor on every sign-in — `src/modules/mfa-all.ts`
+after /magic-link/verify, /sign-in/email-otp, /phone-number/verify, /sign-in/social, /callback/:id, oauth2 and one-tap:
+if the new session's user has twoFactorEnabled -> delete the session and its cookie, set the signed two_factor
+cookie (2fa-<id> -> user, attempts counter; as Better Auth's twoFactor does for passwords), then
+  JSON route -> { twoFactorRedirect: true, twoFactorMethods }; redirect route -> same Location + ?twoFactorRedirect=true.
+/two-factor/verify-totp (or backup code, email second step) finishes the sign-in. Trusted-device cookie not honoured here.
+Default on (audit F11, ASVS 2.2.2); mfaOnAllSignIns: false restores the old behaviour.

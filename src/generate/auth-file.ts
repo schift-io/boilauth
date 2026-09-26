@@ -144,6 +144,7 @@ export function authFile(a: Answers): string {
   if (!rolesOn) opts.push("admin: false");
   else if (a.roles.hideAdmin) opts.push("hideAdminRoutes: true");
   if (a.session.bearer) opts.push("bearer: true");
+  if (a.mfa.mode !== "off" && !a.mfa.allSignIns) opts.push("mfaOnAllSignIns: false");
   if (!a.notify.securityChanges || a.notify.newDevice) {
     const on = a.notify.securityChanges;
     opts.push(`securityNotices: { passwordChanged: ${on}, mfaChanged: ${on}, accountLocked: ${on}, newDevice: ${a.notify.newDevice && a.signIn.emailPassword} }`);

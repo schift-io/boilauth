@@ -17,6 +17,7 @@ import { phonePlugins, type PhoneOptions } from "./modules/phone.js";
 import { SEND_LIMIT_PLUGIN_ID, withRateLimitHeaders } from "./modules/rate-limit.js";
 import { hideAdminRoutes } from "./modules/admin-hide.js";
 import { CLIENT_IP_HEADER, withClientIp, type ClientIpConfig } from "./modules/client-ip.js";
+import { mfaOnAllSignIns } from "./modules/mfa-all.js";
 import { DEFAULT_SECURITY_NOTICES, notifier, securityNotices, type SecurityNotices } from "./modules/notify.js";
 
 export const PRESETS = {
@@ -96,6 +97,11 @@ export interface BoilAuthOptions {
   phone?: PhoneOptions;
   /** Better Auth's admin plugin (role column). Default true; set false for no roles, or pass your own admin() in plugins. */
   admin?: boolean;
+  /**
+   * A user with two-factor on must pass it after a magic link, email or SMS code, or OAuth too,
+   * not only after a password (boilauth/mfa-all). Default true; has effect with the twoFactor plugin.
+   */
+  mfaOnAllSignIns?: boolean;
   /** Answer 404 instead of 401/403 on /admin/* to anyone without an admin role. Default false. */
   hideAdminRoutes?: boolean;
   /**
@@ -220,6 +226,7 @@ export function boilAuthOptions(o: BoilAuthOptions) {
         notify,
       }),
       ...(send ? [securityNotices(notify)] : []),
+      ...(o.mfaOnAllSignIns === false ? [] : [mfaOnAllSignIns()]),
       ...(o.username ? [usernamePlugin(usernamePluginOptions(o.username))] : []),
       ...(o.phone ? phonePlugins(o.phone, o.now) : []),
       ...(o.hideAdminRoutes ? [hideAdminRoutes()] : []),

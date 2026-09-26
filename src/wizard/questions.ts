@@ -248,6 +248,10 @@ export const QUESTIONS: Question[] = [
     key: "mfa.emailOtp", group: "H. MFA", type: "confirm", when: (a) => pw(a) && a.mfa.mode !== "off",
     message: "Also accept a code sent by email as the second factor? (admin access still needs TOTP or a backup code)",
   },
+  {
+    key: "mfa.allSignIns", group: "H. MFA", type: "confirm", when: (a) => pw(a) && a.mfa.mode !== "off",
+    message: "Ask users with two-factor on for their code after magic links, email/SMS codes and OAuth too, not only after a password?",
+  },
   // K. Security notices
   {
     key: "notify.securityChanges", group: "K. Security notices", type: "confirm",

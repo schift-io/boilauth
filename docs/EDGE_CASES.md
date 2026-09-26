@@ -141,6 +141,7 @@ A fresh session token on every sign-in and ending all sessions on password reset
 | Second factor | `mfa.mode` | **`off`** / `totp_optional` / `totp_required_admin` | better-auth `twoFactor` (+ `boilauth/mfa`) | H1 H2 |
 | Backup codes per user | `mfa.backupCodes` | number 5..20, **10** (each usable once) | better-auth `twoFactor` | H3 |
 | Code by email as the second step | `mfa.emailOtp` | yes / **no** (6 digits, 5 minutes, 3 tries, stored hashed) | better-auth `twoFactor` otp | H4 |
+| Second factor after passwordless sign-in too | `mfa.allSignIns` | **yes** (magic link, email/SMS code, OAuth of a two-factor user answer `twoFactorRedirect`) / no | `boilauth/mfa-all` | H3 |
 
 An email code (H4) is an alternative second step for normal sign-in only; admin endpoints under
 `totp_required_admin` still need TOTP or a backup code. Email-code sign-in (B4), like magic link,

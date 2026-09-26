@@ -227,9 +227,14 @@ export function testFile(a: Answers): string {
     const otp = a.signIn.emailOtp
       ? `  const otpJar: h.Jar = new Map();
   assert.equal((await h.call(auth, "/email-otp/send-verification-otp", { body: { email, type: "sign-in" } })).status, 200);
-  await h.call(auth, "/sign-in/email-otp", { body: { email, otp: h.lastCode(email) }, jar: otpJar });
-  assert.equal((await h.call(auth, "/admin/list-users", { jar: otpJar })).status, 403, "email code session skipped TOTP");
+${a.mfa.allSignIns
+    ? `  const otpSignIn = await h.call(auth, "/sign-in/email-otp", { body: { email, otp: h.lastCode(email) }, jar: otpJar });
+  assert.equal(otpSignIn.json?.twoFactorRedirect, true, "an email code asks for the second factor");
+  assert.equal(await h.currentSession(auth, otpJar), null);
 `
+    : `  await h.call(auth, "/sign-in/email-otp", { body: { email, otp: h.lastCode(email) }, jar: otpJar });
+  assert.equal((await h.call(auth, "/admin/list-users", { jar: otpJar })).status, 403, "email code session skipped TOTP");
+`}`
       : "";
     const phone = a.signIn.phone
       ? `  const phone = h.newPhone();
@@ -237,17 +242,27 @@ export function testFile(a: Answers): string {
   assert.equal((await h.call(auth, "/phone-number/verify", { body: { phoneNumber: phone, code: h.lastSms(phone), updatePhoneNumber: true }, jar: plain })).status, 200);
   await h.call(auth, "/phone-number/send-otp", { body: { phoneNumber: phone } });
   const smsJar: h.Jar = new Map();
-  assert.equal((await h.call(auth, "/phone-number/verify", { body: { phoneNumber: phone, code: h.lastSms(phone) }, jar: smsJar })).status, 200);
-  assert.equal((await h.call(auth, "/admin/list-users", { jar: smsJar })).status, 403, "SMS code session skipped TOTP");
+${a.mfa.allSignIns
+    ? `  const smsSignIn = await h.call(auth, "/phone-number/verify", { body: { phoneNumber: phone, code: h.lastSms(phone) }, jar: smsJar });
+  assert.equal(smsSignIn.json?.twoFactorRedirect, true, "an SMS code asks for the second factor");
+  assert.equal(await h.currentSession(auth, smsJar), null);
 `
+    : `  assert.equal((await h.call(auth, "/phone-number/verify", { body: { phoneNumber: phone, code: h.lastSms(phone) }, jar: smsJar })).status, 200);
+  assert.equal((await h.call(auth, "/admin/list-users", { jar: smsJar })).status, 403, "SMS code session skipped TOTP");
+`}`
       : "";
     const magic = a.signIn.magicLink
       ? `  const viaLink = await h.call(auth, "/sign-in/magic-link", { body: { email, callbackURL: "/" } });
   assert.equal(viaLink.status, 200);
   const linkJar: h.Jar = new Map();
-  await h.call(auth, h.lastMail(email, "/magic-link/verify"), { jar: linkJar });
-  assert.equal((await h.call(auth, "/admin/list-users", { jar: linkJar })).status, 403, "magic link session skipped TOTP");
+${a.mfa.allSignIns
+    ? `  const viaLinkVerify = await h.call(auth, h.lastMail(email, "/magic-link/verify"), { jar: linkJar });
+  assert.match(viaLinkVerify.location ?? "", /twoFactorRedirect=true/, "a magic link asks for the second factor");
+  assert.equal(await h.currentSession(auth, linkJar), null);
 `
+    : `  await h.call(auth, h.lastMail(email, "/magic-link/verify"), { jar: linkJar });
+  assert.equal((await h.call(auth, "/admin/list-users", { jar: linkJar })).status, 403, "magic link session skipped TOTP");
+`}`
       : "";
     blocks.push(tpl("mfa-admin", { MFA_ADMIN_MAGIC: magic + otp + phone }));
   }
