@@ -295,3 +295,7 @@ user.delete.before (databaseHooks), only when the request path is /admin/remove-
 the caller's permission): canDelete veto -> 409 with its code; organization last-owner rule; leave organizations;
 soft -> deletedAt + end sessions, anonymize -> anonymizeUser; both return false so the row is kept.
 purgeDeleted and other internal deletes are not affected (no request path).
+
+## [G4a] Hidden admin routes: who is an admin — `src/modules/admin-hide.ts`
+admin plugin options at runtime: user id in adminUserIds, or a role in adminRoles (default admin), or with custom
+access control a role granting anything on user/session. Anyone else, and no session -> 404 (audit F14).

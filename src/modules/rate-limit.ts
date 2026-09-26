@@ -18,6 +18,7 @@
 import { createHash } from "node:crypto";
 import type { BetterAuthPlugin } from "better-auth";
 import { consumeDatabase, consumeMemory } from "./counter-store.js";
+import { phoneNumberAllowed } from "./phone.js";
 
 /** Send endpoint -> body field that names the destination. */
 export const SEND_PATHS: Record<string, "email" | "phoneNumber"> = {
@@ -48,7 +49,7 @@ export interface SendLimits {
  */
 export function normaliseDestination(field: "email" | "phoneNumber", raw: unknown): string | null {
   if (typeof raw !== "string") return null;
-  if (field === "phoneNumber") return /^\+[1-9]\d{7,14}$/.test(raw) ? raw : null;
+  if (field === "phoneNumber") return phoneNumberAllowed({}, raw) ? raw : null;
   const v = raw.trim().toLowerCase();
   return v ? v : null;
 }

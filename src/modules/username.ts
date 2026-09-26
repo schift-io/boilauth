@@ -44,7 +44,7 @@ const RulesSchema = z
     maxLength: z.number().int().min(1).max(64),
     pattern: z.string().min(1).refine((p) => {
       try {
-        new RegExp(p);
+        usernamePattern(p);
         return true;
       } catch {
         return false;
@@ -98,20 +98,33 @@ immutable: ${r.immutable}
 `;
 }
 
-/** Applies the case rule; the lockout hook uses it to find the account. */
+/**
+ * NFKC first (full-width "ａｄｍｉｎ" is "admin"), then the case rule (audit F17). The lockout
+ * hook uses it to find the account. Look-alikes from other scripts (Cyrillic "а") are not
+ * folded; keep the pattern to the scripts you need.
+ */
 export function normalizeUsername(r: UsernameRules, username: string): string {
-  return r.caseInsensitive ? username.toLowerCase() : username;
+  const n = username.normalize("NFKC");
+  return r.caseInsensitive ? n.toLowerCase() : n;
+}
+
+/** A pattern using \p{...} or \u{...} needs the unicode flag to mean anything. */
+export function usernamePattern(p: string): RegExp {
+  return /\\[pPu]\{/.test(p) ? new RegExp(p, "u") : new RegExp(p);
 }
 
 /** Better Auth `username` plugin options for these rules. */
 export function usernamePluginOptions(r: UsernameRules) {
-  const pattern = new RegExp(r.pattern);
-  const reserved = new Set(r.reserved.map((n) => n.toLowerCase()));
+  const pattern = usernamePattern(r.pattern);
+  const reserved = new Set(r.reserved.map((n) => n.normalize("NFKC").toLowerCase()));
   return {
     minUsernameLength: r.minLength,
     maxUsernameLength: r.maxLength,
-    usernameValidator: (u: string) => pattern.test(u) && !reserved.has(u.toLowerCase()),
-    usernameNormalization: r.caseInsensitive ? (u: string) => u.toLowerCase() : (false as const),
+    usernameValidator: (u: string) => {
+      const n = u.normalize("NFKC");
+      return pattern.test(n) && !reserved.has(n.toLowerCase());
+    },
+    usernameNormalization: (u: string) => normalizeUsername(r, u),
     immutableUsername: r.immutable,
   };
 }

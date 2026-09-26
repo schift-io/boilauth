@@ -23,6 +23,8 @@ test("plugin options: pattern, reserved names in any casing, case rule", () => {
   assert.equal(o.usernameValidator("ADMIN"), false);
   assert.equal(o.usernameValidator("al ice"), false);
   assert.equal(typeof o.usernameNormalization, "function");
-  assert.equal(usernamePluginOptions({ ...DEFAULT_USERNAME_RULES, caseInsensitive: false }).usernameNormalization, false);
+  const sensitive = usernamePluginOptions({ ...DEFAULT_USERNAME_RULES, caseInsensitive: false }).usernameNormalization;
+  assert.equal(sensitive("Ａlice"), "Alice", "case kept, NFKC applied");
+  assert.equal(o.usernameNormalization("Ａlice"), "alice");
   assert.equal(o.minUsernameLength, 3);
 });

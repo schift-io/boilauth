@@ -42,8 +42,25 @@ export const E164 = /^\+[1-9]\d{7,14}$/;
 const SMS_PATHS = new Set(["/phone-number/send-otp", "/phone-number/request-password-reset"]);
 const HOUR = 3600;
 
+/** ITU E.164 country code length: 1 for +1 and +7, 2 for the codes below, 3 for the rest. */
+const TWO_DIGIT_CC = new Set([
+  "20", "27", "30", "31", "32", "33", "34", "36", "39", "40", "41", "43", "44", "45", "46", "47", "48", "49",
+  "51", "52", "53", "54", "55", "56", "57", "58", "60", "61", "62", "63", "64", "65", "66",
+  "81", "82", "84", "86", "90", "91", "92", "93", "94", "95", "98",
+]);
+
+export function countryCodeOf(n: string): string {
+  const d = n.slice(1);
+  if (d[0] === "1" || d[0] === "7") return d[0];
+  return TWO_DIGIT_CC.has(d.slice(0, 2)) ? d.slice(0, 2) : d.slice(0, 3);
+}
+
 export function phoneNumberAllowed(o: Pick<PhoneOptions, "allowedCountryCodes">, n: string): boolean {
   if (!E164.test(n)) return false;
+  // E.164 drops the national trunk 0 (+82 10..., not +82 010...); only Italy keeps a leading 0.
+  // Two spellings of one line would be two identities and two send-limit buckets (audit F18).
+  const cc = countryCodeOf(n);
+  if (cc !== "39" && n[1 + cc.length] === "0") return false;
   const codes = o.allowedCountryCodes ?? [];
   return codes.length === 0 || codes.some((c) => n.startsWith("+" + c));
 }

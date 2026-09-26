@@ -56,6 +56,13 @@ IPv6 clients are counted per /64. In production a request with no resolvable IP 
 | Magic link by email | `signIn.magicLink` | yes / **no** | better-auth `magicLink` | B2 |
 | Phone numbers (attach by SMS code; sign in by SMS code, or number + password) | `signIn.phone` | yes / **no** (E.164 only, 6 digits, 5 minutes, 3 tries, verified numbers only; sender in `src/sms.ts`) | better-auth `phoneNumber` + `boilauth/phone` | B5 |
 | Countries that may receive SMS | `phone.allowedCountries` | comma list of calling codes, **none** (every country) | `boilauth/phone` | B5 F2 |
+
+Usernames are NFKC-normalised before the pattern, the reserved list and the uniqueness check, so
+full-width `ａｄｍｉｎ` is `admin`; a pattern with `\p{...}` is compiled with the unicode flag (audit F17).
+Look-alikes across scripts (Cyrillic `а` for Latin `a`) are not folded: keep the pattern to the scripts you need.
+
+Phone numbers are E.164 without the national trunk 0 (`+82 10...`, not `+82 010...`; Italy keeps its 0):
+two spellings of one line would be two identities and two send-limit buckets (audit F18).
 | One-time code by email | `signIn.emailOtp` | yes / **no** (6 digits, 5 minutes, 3 tries, stored hashed) | better-auth `emailOTP` | B4 |
 | OAuth providers | `signIn.oauth` | multi: `google` `github` `apple` `kakao` `naver`, **none** | better-auth `socialProviders` | B3 |
 
