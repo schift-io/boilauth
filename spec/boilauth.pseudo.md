@@ -157,3 +157,16 @@ sessions (times, ip, user agent; no tokens), imported identities. No hashes.
 core always ; admin (roles != none) ; two-factor (mfa != off) ; mfa-admin (totp_required_admin) ;
 organization (roles = organizations) ; soft-delete (deletion = soft).
 Each has schema/<module>.v<N>.json = its delta over its base; migrate(auth) rewrites boilauthModule rows.
+
+## [W1] Situation: existing users — `src/wizard/answers.ts` situationDefaults()
+Applied only to keys the developer has not answered; every policy question is still asked.
+existingUsers and currentSignIn non-empty -> signIn.emailPassword/magicLink/oauth = currentSignIn
+existingUsers and currentSignIn has email_password -> ask migration.sources (generic = own CSV/JSON)
+existingUsers and sourceVerifiedEmail = no -> email.verification = optional
+Import keeps each row's own verified flag either way; merges still need verified on both sides [M1].
+
+## [W2] Situation: audience
+b2c -> roles.mode admin, OAuth options list kakao, naver first (none preselected)
+b2b -> roles.mode organizations (orgCreation any_user)
+internal -> roles.mode admin, mfa.mode totp_required_admin
+init --yes = no existing users + b2c = the plain defaults.

@@ -8,6 +8,29 @@ which code `boilauth init` generates. Default in **bold**. Behaviour details liv
 Only options verified against Better Auth 1.7.6 source and covered by a generated-project
 test are offered. What is left out, and why, is at the end.
 
+## 0. Your situation (asked first)
+
+| Case | Policy key | Choices | Module | Spec |
+|---|---|---|---|---|
+| Users already exist elsewhere | `situation.existingUsers` | yes / **no** | wizard defaults | W1 |
+| How they sign in today | `situation.currentSignIn` | multi: `email_password` `magic_link` `google` `github` `apple` `kakao` `naver`, **`email_password`** | wizard defaults | W1 |
+| Did the old system verify emails | `situation.sourceVerifiedEmail` | **`yes`** / `no` (or not sure) | wizard defaults | W1 |
+| Who the app is for | `situation.audience` | **`b2c`** / `b2b` / `internal` | wizard defaults | W2 |
+
+These answers generate no code of their own. They set the defaults of the questions below,
+which are still asked:
+
+| Answer | Default it sets |
+|---|---|
+| existing users + how they sign in | `signIn.emailPassword`, `signIn.magicLink`, `signIn.oauth` = the methods they use today |
+| existing users + email + password | `migration.sources` is asked here ("where are they now") |
+| existing users + old system did not verify | `email.verification` = `optional`, so imported users are not met by a 403 on their next sign-in |
+| `b2c` | `roles.mode` = `admin`; Kakao and Naver listed first in OAuth choices |
+| `b2b` | `roles.mode` = `organizations` (`roles.orgCreation` = `any_user`) |
+| `internal` | `roles.mode` = `admin`, `mfa.mode` = `totp_required_admin` |
+
+`init --yes` answers: no existing users, `b2c`.
+
 ## A. Runtime
 
 | Case | Policy key | Choices | Module | Spec |
@@ -26,11 +49,11 @@ Adapter is Better Auth's built-in Kysely adapter for both (not asked). Language 
 
 At least one method must be on. Magic link and OAuth sign-ins are outside the TOTP challenge (Better Auth's two-factor hook covers `/sign-in/email`); see H.
 
-## C. Migration source (only with email + password)
+## C. Migration source (only with existing users who sign in with email + password)
 
 | Case | Policy key | Choices | Module | Spec |
 |---|---|---|---|---|
-| Import users with their hashes | `migration.sources` | multi: `supabase` `firebase` `auth0`, **none** | importers + CLI | I1 M1 |
+| Import users with their hashes | `migration.sources` | multi: `supabase` `firebase` `auth0` `generic` (your own CSV/JSON: `id,email,email_verified,password_hash,name,created_at`; bcrypt or argon2id), **none** | importers + CLI | I1 M1 |
 | Firebase key id | `migration.firebase.keyId` | text, **`firebase`** | config | P2 |
 | Firebase salt separator | `migration.firebase.saltSeparator` | text, **`Bw==`** | config | P2 |
 | Firebase rounds | `migration.firebase.rounds` | number, **8** | config | P2 |
@@ -99,16 +122,17 @@ Stops at roles. No attribute or policy engine.
 
 ## Wizard question order
 
-1. A runtime
-2. B sign-in methods
-3. C migration (needs email + password)
-4. D email verification
-5. E linking (needs OAuth)
-6. F password (needs email + password)
-7. G lockout (needs email + password), rate limit, sessions
-8. I roles
-9. H MFA (needs email + password; `totp_required_admin` needs roles)
-10. J deletion
+1. 0 situation: existing users, how they sign in, where they are now (C `migration.sources`), verified emails, audience
+2. A runtime
+3. B sign-in methods
+4. C Firebase parameters (needs Firebase)
+5. D email verification
+6. E linking (needs OAuth)
+7. F password (needs email + password)
+8. G lockout (needs email + password), rate limit, sessions
+9. I roles
+10. H MFA (needs email + password; `totp_required_admin` needs roles)
+11. J deletion
 
 ## Schema per module
 
@@ -132,5 +156,7 @@ service reading the database knows the shape without guessing.
 | Passkey | not offered | Lives in the separate `@better-auth/passkey` package; an end-to-end test needs a WebAuthn authenticator emulator we do not have yet. |
 | Drizzle / Prisma adapters | not offered | Both need the ORM's own schema generation step; no generated-project test covers it yet. The built-in adapter covers SQLite and Postgres. |
 | Python | not offered | Later, per owner. |
+| Importing users who only sign in with OAuth or magic link | not offered | The importers bring password hashes. Such users sign in again with the same provider; with `linking.mode = verified_only` a verified email links to an imported row only when one exists. |
+| Other hash formats in `generic` (md5, sha1, pbkdf2, scrypt) | not offered | `verify()` checks argon2id, bcrypt and Firebase scrypt only; other rows are reported `unsupported_hash` and those users reset their password. |
 | "Rotate session on sign-in" as a choice | always on | Better Auth mints a new token on every sign-in; there is nothing to switch off. |
 | OAuth callback against real providers | wired, not exercised | Tests check the authorize redirect (host + client id). Token exchange needs live provider apps. |

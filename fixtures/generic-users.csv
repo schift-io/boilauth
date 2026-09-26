@@ -1,0 +1,3 @@
+id,email,email_verified,password_hash,name,created_at
+u-1,margaret@example.com,true,$2b$04$cVWp4XaNU8a4v1uMRum2SO026BWLIoQMD/TXg5uZV.0P.uO8m3YEm,Margaret Hamilton,2025-01-01T00:00:00.000Z
+u-2,no-password@example.com,false,,,2025-01-01T00:00:00.000Z

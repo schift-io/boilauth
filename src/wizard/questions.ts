@@ -20,12 +20,64 @@ export interface Question {
   hideOption?: (a: Answers, value: string) => boolean;
   /** For text answers stored as a list. */
   parse?: (raw: string) => unknown;
+  /** Reorders options for this run (e.g. Kakao and Naver first for a consumer app). */
+  sortOptions?: (a: Answers, values: string[]) => string[];
 }
 
 const pw = (a: Answers) => a.signIn.emailPassword;
 const hasFirebase = (a: Answers) => pw(a) && a.migration.sources.includes("firebase");
+const existing = (a: Answers) => a.situation.existingUsers;
+const OAUTH_OPTIONS = [
+  { value: "google", label: "Google" },
+  { value: "github", label: "GitHub" },
+  { value: "apple", label: "Apple" },
+  { value: "kakao", label: "Kakao" },
+  { value: "naver", label: "Naver" },
+];
+const KOREAN_FIRST = (a: Answers, v: string[]) =>
+  a.situation.audience === "b2c" ? [...v.filter((x) => x === "kakao" || x === "naver"), ...v.filter((x) => x !== "kakao" && x !== "naver")] : v;
 
 export const QUESTIONS: Question[] = [
+  // 0. Situation. The answers set the defaults of everything below.
+  { key: "situation.existingUsers", group: "0. Your situation", type: "confirm", message: "Do you already have users signing in somewhere else?" },
+  {
+    key: "situation.currentSignIn", group: "0. Your situation", type: "multiselect", when: existing,
+    message: "How do they sign in today? (kept as your sign-in methods)",
+    sortOptions: KOREAN_FIRST,
+    options: [
+      { value: "email_password", label: "Email + password" },
+      { value: "magic_link", label: "Magic link by email" },
+      ...OAUTH_OPTIONS,
+    ],
+  },
+  {
+    key: "migration.sources", group: "0. Your situation", type: "multiselect",
+    when: (a) => existing(a) && a.situation.currentSignIn.includes("email_password"),
+    message: "Where are those users now? Their password hashes come along",
+    options: [
+      { value: "supabase", label: "Supabase", hint: "auth.users, bcrypt" },
+      { value: "firebase", label: "Firebase", hint: "modified scrypt" },
+      { value: "auth0", label: "Auth0", hint: "password-hash export, bcrypt" },
+      { value: "generic", label: "Other", hint: "your own CSV or JSON: email, email_verified, bcrypt or argon2id hash" },
+    ],
+  },
+  {
+    key: "situation.sourceVerifiedEmail", group: "0. Your situation", type: "select", when: existing,
+    message: "Did your current system verify their email addresses?",
+    options: [
+      { value: "yes", label: "Yes", hint: "imported users keep their verified status" },
+      { value: "no", label: "No or not sure", hint: "defaults email verification to optional so they can still sign in" },
+    ],
+  },
+  {
+    key: "situation.audience", group: "0. Your situation", type: "select",
+    message: "Who is the app for?",
+    options: [
+      { value: "b2c", label: "Consumers", hint: "user + admin, Kakao and Naver listed first" },
+      { value: "b2b", label: "Businesses with teams", hint: "organizations" },
+      { value: "internal", label: "Internal tool", hint: "user + admin, TOTP required for admins" },
+    ],
+  },
   // A. Runtime
   {
     key: "runtime.database", group: "A. Runtime", type: "select",
@@ -41,24 +93,10 @@ export const QUESTIONS: Question[] = [
   {
     key: "signIn.oauth", group: "B. Sign-in", type: "multiselect",
     message: "OAuth providers (space to toggle, none is fine)",
-    options: [
-      { value: "google", label: "Google" },
-      { value: "github", label: "GitHub" },
-      { value: "apple", label: "Apple" },
-      { value: "kakao", label: "Kakao" },
-      { value: "naver", label: "Naver" },
-    ],
+    sortOptions: KOREAN_FIRST,
+    options: OAUTH_OPTIONS,
   },
   // C. Migration
-  {
-    key: "migration.sources", group: "C. Migration", type: "multiselect", when: pw,
-    message: "Import existing users with their password hashes from",
-    options: [
-      { value: "supabase", label: "Supabase", hint: "auth.users, bcrypt" },
-      { value: "firebase", label: "Firebase", hint: "modified scrypt" },
-      { value: "auth0", label: "Auth0", hint: "password-hash export, bcrypt" },
-    ],
-  },
   { key: "migration.firebase.keyId", group: "C. Migration", type: "text", when: hasFirebase, message: "Firebase key id (any name; signer key comes from FIREBASE_SIGNER_KEY)" },
   { key: "migration.firebase.saltSeparator", group: "C. Migration", type: "text", when: hasFirebase, message: "Firebase base64_salt_separator" },
   { key: "migration.firebase.rounds", group: "C. Migration", type: "number", when: hasFirebase, message: "Firebase rounds" },

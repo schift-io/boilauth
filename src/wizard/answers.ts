@@ -8,11 +8,21 @@ import { existsSync } from "node:fs";
 
 export const OAUTH_PROVIDERS = ["google", "github", "apple", "kakao", "naver"] as const;
 export type OAuthProvider = (typeof OAUTH_PROVIDERS)[number];
-export const MIGRATION_SOURCES = ["supabase", "firebase", "auth0"] as const;
+export const MIGRATION_SOURCES = ["supabase", "firebase", "auth0", "generic"] as const;
 export type MigrationSource = (typeof MIGRATION_SOURCES)[number];
+export const SIGN_IN_METHODS = ["email_password", "magic_link", ...OAUTH_PROVIDERS] as const;
+export type SignInMethod = (typeof SIGN_IN_METHODS)[number];
+export const AUDIENCES = ["b2c", "b2b", "internal"] as const;
 
 export interface Answers {
   version: 1;
+  /** The developer's situation. Asked first; sets the defaults of the policy questions below. */
+  situation: {
+    existingUsers: boolean;
+    currentSignIn: SignInMethod[];
+    sourceVerifiedEmail: "yes" | "no";
+    audience: (typeof AUDIENCES)[number];
+  };
   runtime: { database: "sqlite" | "postgres" };
   signIn: { emailPassword: boolean; magicLink: boolean; oauth: OAuthProvider[] };
   migration: {
@@ -32,6 +42,7 @@ export interface Answers {
 
 export const DEFAULT_ANSWERS: Answers = {
   version: 1,
+  situation: { existingUsers: false, currentSignIn: ["email_password"], sourceVerifiedEmail: "yes", audience: "b2c" },
   runtime: { database: "sqlite" },
   signIn: { emailPassword: true, magicLink: false, oauth: [] },
   migration: { sources: [], firebase: { keyId: "firebase", saltSeparator: "Bw==", rounds: 8, memCost: 14 } },
@@ -70,6 +81,8 @@ export function validateAnswers(a: Answers): string[] {
   const s = a.signIn;
   if (!s.emailPassword && !s.magicLink && s.oauth.length === 0) errs.push("signIn: turn on at least one sign-in method");
   for (const p of s.oauth) if (!OAUTH_PROVIDERS.includes(p)) errs.push(`signIn.oauth: unknown provider ${p}`);
+  for (const m of a.situation.currentSignIn) if (!SIGN_IN_METHODS.includes(m)) errs.push(`situation.currentSignIn: unknown ${m}`);
+  if (!AUDIENCES.includes(a.situation.audience)) errs.push(`situation.audience: unknown ${a.situation.audience}`);
   for (const m of a.migration.sources) if (!MIGRATION_SOURCES.includes(m)) errs.push(`migration.sources: unknown ${m}`);
   if (a.migration.sources.length && !s.emailPassword) errs.push("migration.sources needs signIn.emailPassword");
   const int = (v: number, lo: number, hi: number, key: string) => {
@@ -92,6 +105,30 @@ export function validateAnswers(a: Answers): string[] {
   return errs;
 }
 
+/**
+ * Policy defaults that follow from the situation answers. Applied only to keys
+ * the developer has not answered, so every one of them is still asked and can
+ * be changed.
+ */
+export function situationDefaults(a: Answers): Record<string, unknown> {
+  const s = a.situation;
+  const d: Record<string, unknown> = {};
+  if (s.existingUsers && s.currentSignIn.length) {
+    // Keep existing users signing in the way they do today.
+    d["signIn.emailPassword"] = s.currentSignIn.includes("email_password");
+    d["signIn.magicLink"] = s.currentSignIn.includes("magic_link");
+    d["signIn.oauth"] = s.currentSignIn.filter((m): m is OAuthProvider => (OAUTH_PROVIDERS as readonly string[]).includes(m));
+  }
+  // An unverified import under `required` would meet a 403 on its next sign-in.
+  if (s.existingUsers && s.sourceVerifiedEmail === "no") d["email.verification"] = "optional";
+  if (s.audience === "b2b") d["roles.mode"] = "organizations";
+  if (s.audience === "internal") {
+    d["roles.mode"] = "admin";
+    d["mfa.mode"] = "totp_required_admin";
+  }
+  return d;
+}
+
 /** Fills everything missing from defaults and drops values that no longer apply. */
 export function normalizeAnswers(input: unknown): Answers {
   const merged = structuredClone(DEFAULT_ANSWERS) as unknown as Record<string, unknown>;
@@ -105,6 +142,7 @@ export function normalizeAnswers(input: unknown): Answers {
   };
   walk(input, "");
   const a = merged as unknown as Answers;
+  for (const [k, v] of Object.entries(situationDefaults(a))) if (getPath(input, k) === undefined) setPath(merged, k, v);
   if (!a.signIn.emailPassword) {
     a.migration.sources = [];
     a.mfa.mode = "off";

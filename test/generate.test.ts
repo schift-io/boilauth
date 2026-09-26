@@ -51,6 +51,12 @@ const SCENARIOS: Record<string, { answers: Record<string, unknown>; postgres?: b
       deletion: { mode: "soft", export: true },
     },
   },
+  "existing-users-generic-internal": {
+    answers: {
+      situation: { existingUsers: true, currentSignIn: ["email_password", "kakao"], sourceVerifiedEmail: "no", audience: "internal" },
+      migration: { sources: ["generic"] },
+    },
+  },
   "magic-link-only-no-roles": {
     answers: {
       signIn: { emailPassword: false, magicLink: true, oauth: [] },

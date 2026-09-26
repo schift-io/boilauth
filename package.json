@@ -3,6 +3,14 @@
   "version": "0.2.0",
   "description": "Migration-friendly auth kit on Better Auth: safe presets, import Supabase/Firebase/Auth0 users with their password hashes, versioned schema, SQLite export.",
   "license": "MIT",
+  "homepage": "https://github.com/schift-io/boilauth#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/schift-io/boilauth.git"
+  },
+  "bugs": {
+    "url": "https://github.com/schift-io/boilauth/issues"
+  },
   "type": "module",
   "engines": {
     "node": ">=22.5"
@@ -35,6 +43,7 @@
     "bin",
     "schema",
     "templates",
+    "fixtures",
     "README.md",
     "LICENSE",
     "SECURITY.md"

@@ -8,6 +8,7 @@
  *   boilauth import supabase <file>                 auth.users export (JSON or CSV)
  *   boilauth import firebase <file> --key-id <id>   firebase auth:export (JSON or CSV)
  *   boilauth import auth0 <file>                    Auth0 password-hash export (NDJSON/JSON)
+ *   boilauth import generic <file>                  your own CSV/JSON (id, email, email_verified, password_hash)
  *   boilauth grant-role <email|id> <role>           e.g. grant-role ops@acme.io admin
  *   boilauth purge-deleted <days>                   remove soft-deleted users older than <days>
  *   boilauth export-sqlite <out.db>                 copy every row into a new SQLite file
@@ -16,7 +17,8 @@
  *   boilauth check-updates --feed <url>             opt-in advisory check
  *
  * All commands except init read ./boilauth.config.ts (or .mjs, or --config),
- * whose default export is the object returned by createBoilAuth().
+ * whose default export is the object returned by createBoilAuth(). ./.env is
+ * loaded first when present; variables already set in the shell win.
  */
 import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
@@ -25,7 +27,7 @@ import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { createBoilAuth, type BoilAuth } from "./auth.js";
 import { importUsers } from "./import/common.js";
-import { parseAuth0Export, parseFirebaseExport, parseSupabaseExport } from "./import/providers.js";
+import { parseAuth0Export, parseFirebaseExport, parseGenericExport, parseSupabaseExport } from "./import/providers.js";
 import { grantRole } from "./roles.js";
 import { copyAuthData, describeSchema, enabledModules, migrate } from "./schema.js";
 import { checkAdvisories } from "./update-check.js";
@@ -43,6 +45,8 @@ function defaultConfig(): string {
 }
 
 async function loadAuth(configPath: string | undefined): Promise<BoilAuth> {
+  // The generated config reads process.env; ./.env fills what the shell has not set.
+  if (existsSync(".env")) process.loadEnvFile(".env");
   const p = resolve(configPath ?? defaultConfig());
   if (!existsSync(p)) throw new Error(`config not found: ${p} (run \`boilauth init\`)`);
   let mod;
@@ -97,12 +101,13 @@ export async function main(argv: string[], log: (s: string) => void = console.lo
       return 0;
     }
     case "import": {
-      if (!a || !b) throw new Error("usage: boilauth import <supabase|firebase|auth0> <file>");
+      if (!a || !b) throw new Error("usage: boilauth import <supabase|firebase|auth0|generic> <file>");
       const auth = await loadAuth(values.config);
       const text = await readFile(b, "utf8");
       let records;
       if (a === "supabase") records = parseSupabaseExport(text);
       else if (a === "auth0") records = parseAuth0Export(text);
+      else if (a === "generic") records = parseGenericExport(text);
       else if (a === "firebase") {
         const keyId = values["key-id"];
         const key = auth.boilauth.input.firebaseKeys?.find((k) => k.keyId === keyId);

@@ -4,6 +4,7 @@ import {
   importUsers,
   parseAuth0Export,
   parseFirebaseExport,
+  parseGenericExport,
   parseSupabaseExport,
   hashKind,
   type ImportRecord,
@@ -69,6 +70,23 @@ test("auth0 NDJSON export: $2b$ user logs in; md5 row reported as unsupported", 
   const { report } = await importThenLogin("auth0", records, "linus@example.com", "Kk4DQuMMfZL9o", "bcrypt");
   const md5 = report.outcomes.find((x) => x.email === "md5user@example.com");
   assert.deepEqual(md5, { sourceId: "60425dc43519d90068f82974", email: "md5user@example.com", result: "skipped", reason: "unsupported_hash" });
+});
+
+test("generic CSV export: bcrypt user logs in; a row without a hash is created without a password", async () => {
+  const records = parseGenericExport(fixture("generic-users.csv"));
+  assert.equal(records[0].sourceId, "u-1");
+  assert.equal(records[0].emailVerified, true);
+  assert.equal(records[1].emailVerified, false);
+  assert.equal(records[1].passwordHash, null);
+  const { auth, report } = await importThenLogin("generic", records, "margaret@example.com", "Kk4DQuMMfZL9o", "bcrypt");
+  const o = report.outcomes.find((x) => x.email === "no-password@example.com");
+  assert.deepEqual(o && o.result === "created" && o.password, false);
+  assert.equal((await signIn(auth, "no-password@example.com", "anything-at-all")).status, 401);
+});
+
+test("generic JSON export reads the same columns", () => {
+  const [r] = parseGenericExport(JSON.stringify([{ id: 7, email: "a@b.co", email_verified: "yes", password_hash: "" }]));
+  assert.deepEqual([r.sourceId, r.emailVerified, r.passwordHash], ["7", true, null]);
 });
 
 test("re-running an import is idempotent", async () => {

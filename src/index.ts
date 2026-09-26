@@ -16,7 +16,7 @@ export {
   type HashKind,
 } from "./hash/index.js";
 export { importUsers, type ImportRecord, type ImportReport, type ImportSource } from "./import/common.js";
-export { parseSupabaseExport, parseFirebaseExport, parseAuth0Export } from "./import/providers.js";
+export { parseSupabaseExport, parseFirebaseExport, parseAuth0Export, parseGenericExport } from "./import/providers.js";
 export { grantRole } from "./roles.js";
 export {
   SCHEMA_VERSION,

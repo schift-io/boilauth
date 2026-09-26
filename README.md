@@ -1,15 +1,16 @@
 # boilauth
 
+Part of [Schift](https://schift.io)'s boil series, alongside [boilpayment](https://github.com/schift-io/boilpayment).
+
 Email/password auth that runs in **your** database, with a migration path in.
-Bring your users from Supabase, Firebase or Auth0 **with their existing password
+Bring your users from Supabase, Firebase, Auth0 or your own export **with their existing password
 hashes** — they log in with the password they already have, and the hash is
 upgraded to argon2id on that first login.
 
 - Engine: [Better Auth](https://better-auth.com) (sessions, cookies, origin checks, DB adapters).
   boilauth does not implement its own auth crypto; it composes argon2id
   (`@node-rs/argon2`), bcrypt (`bcryptjs`) and Node's built-in scrypt/AES.
-- Status: **0.2.0, pre-release.** Not published to npm. An external security
-  review happens before 1.0 — see [Security model](#security-model).
+- Status: **0.2.0, pre-release.** Not published to npm yet.
 - License: MIT.
 
 ## 5-minute start
@@ -18,14 +19,14 @@ Requires Node 22.5+ (for built-in `node:sqlite`).
 
 ```bash
 npm install boilauth          # after first release; until then: npm install <path-or-git-url>
-npx boilauth init             # asks the policy questions below, generates code for your answers
+npx boilauth init             # asks about your situation, then the policy questions below
 npm install
 cp .env.example .env          # set BOILAUTH_SECRET=$(openssl rand -base64 32)
 npm test                      # the generated tests for exactly the options you chose
 npx boilauth migrate          # creates tables and records the schema modules
 ```
 
-`init --yes` takes every default without asking. Answers are saved to
+`init --yes` takes every default without asking (no existing users, consumer app). Answers are saved to
 `boilauth.answers.json`; running `init` again asks only for keys missing from
 that file and regenerates the same code. Change one answer with
 `npx boilauth init --yes --set roles.mode=organizations`.
@@ -48,13 +49,23 @@ Each question is one policy key. The key is the answers-file field and the switc
 that decides which code is generated; the full table with every case, choice and
 module is [`docs/EDGE_CASES.md`](docs/EDGE_CASES.md). Defaults in bold.
 
+The wizard starts with your situation. Those answers generate nothing on their own;
+they set the defaults of the policy questions, which are all still asked.
+
+| # | Policy key | Choices | Sets the default of |
+|---|---|---|---|
+| 0 | `situation.existingUsers` | yes / **no** | whether the next three are asked |
+| 0 | `situation.currentSignIn` | email_password, magic_link, google, github, apple, kakao, naver (**email_password**) | `signIn.*`: keep today's methods |
+| 0 | `migration.sources` | supabase, firebase, auth0, generic (**none**; asked with email + password) | which importers and tests are generated |
+| 0 | `situation.sourceVerifiedEmail` | **yes** / no | no: `email.verification` = optional |
+| 0 | `situation.audience` | **b2c** / b2b / internal | b2b: organizations; internal: admin + TOTP for admins; b2c: Kakao and Naver listed first |
+
 | # | Policy key | Choices |
 |---|---|---|
 | A | `runtime.database` | **sqlite** / postgres |
 | B | `signIn.emailPassword` | **yes** / no |
 | B | `signIn.magicLink` | yes / **no** |
 | B | `signIn.oauth` | google, github, apple, kakao, naver (**none**) |
-| C | `migration.sources` | supabase, firebase, auth0 (**none**) |
 | C | `migration.firebase.keyId`, `.saltSeparator`, `.rounds`, `.memCost` | **firebase**, **Bw==**, **8**, **14** (asked only with firebase) |
 | D | `email.verification` | **required** / optional |
 | E | `linking.mode` | **verified_only** / never (asked only with OAuth) |
@@ -171,6 +182,19 @@ Rows whose hash is not bcrypt are reported as `unsupported_hash` and not importe
 The field names come from Better Auth's Auth0 guide and the common export shape;
 check them against your actual export file before a production run.
 
+### Your own export (generic)
+
+For any other system: export a CSV with a header row, a JSON array or NDJSON with
+the columns `id`, `email`, `email_verified`, `password_hash`, `name`, `created_at`.
+`password_hash` may be bcrypt (`$2a$`/`$2b$`/`$2y$`) or argon2id (`$argon2id$`), or
+empty; users without one are created without a password and can use password reset.
+
+```bash
+npx boilauth import generic users.csv
+```
+
+Other hash formats are reported as `unsupported_hash` and not imported.
+
 ### Account merge rule
 
 If an imported email already exists, the records are merged **only when both
@@ -225,13 +249,13 @@ A test fails if any module's live columns drift from its file.
   advisory JSON and compares versions locally. It runs only when you invoke it
   (or set `BOILAUTH_UPDATE_CHECK=1` and `BOILAUTH_ADVISORY_URL`) and sends nothing
   but the GET. A hosted feed is on the roadmap; for now you supply the URL.
-- **An independent external security review is required before 1.0.** Until then,
-  treat this as pre-release. Report issues per [SECURITY.md](SECURITY.md).
+- Report vulnerabilities privately through GitHub security advisories; see
+  [SECURITY.md](SECURITY.md).
 
 ## Tests
 
 ```bash
-npm test                                           # SQLite, in-memory; also generates 5 projects and runs their tests
+npm test                                           # SQLite, in-memory; also generates 6 projects and runs their tests
 BOILAUTH_PG_URL=postgres://… npm test              # also runs the Postgres paths (empty scratch DB)
 ```
 

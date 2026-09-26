@@ -1,0 +1,16 @@
+test("migration from your own export (generic): import, sign in with the original password, hash upgraded to argon2id", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const report = await boil.importUsers(auth, "generic", boil.parseGenericExport(h.fixture("generic-users.csv")));
+  assert.ok(report.created >= 1, JSON.stringify(report));
+  const ctx = await auth.$context;
+  const hash = async () => {
+    const u = await ctx.internalAdapter.findUserByEmail("margaret@example.com");
+    return (await ctx.internalAdapter.findCredentialAccount(u!.user.id))!.password as string;
+  };
+  assert.ok(!(await hash()).startsWith("$argon2id$"));
+  const wrong = await h.call(auth, "/sign-in/email", { body: { email: "margaret@example.com", password: "not-the-password" } });
+  assert.equal(wrong.status, 401);
+  await h.signIn(auth, "margaret@example.com", "Kk4DQuMMfZL9o");
+  assert.ok((await hash()).startsWith("$argon2id$"), "hash upgraded after the first login");
+  await h.signIn(auth, "margaret@example.com", "Kk4DQuMMfZL9o");
+});

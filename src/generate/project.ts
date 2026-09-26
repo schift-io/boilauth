@@ -3,7 +3,7 @@
  * init; "owned" files are written once and then belong to the developer.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { Answers } from "../wizard/answers.js";
 import { authFile, configFile, emailFile, envExample, permissionsFile } from "./auth-file.js";
@@ -92,10 +92,46 @@ export function planProject(a: Answers): PlannedFile[] {
   return files;
 }
 
+const NPM_PLACEHOLDER_TEST = 'echo "Error: no test specified" && exit 1';
+
+/**
+ * Adds what the generated project needs to a package.json the developer
+ * already has (e.g. the one `npm install boilauth` created). Adds missing keys
+ * only; an existing value is never changed, except npm's placeholder test script.
+ */
+export function mergePackageJson(existing: string, generated: string): { text: string; added: string[] } {
+  const cur = JSON.parse(existing) as Record<string, any>;
+  const gen = JSON.parse(generated) as Record<string, any>;
+  const added: string[] = [];
+  for (const k of ["type", "engines"]) {
+    if (cur[k] === undefined) {
+      cur[k] = gen[k];
+      added.push(k);
+    }
+  }
+  for (const section of ["scripts", "dependencies", "devDependencies"]) {
+    cur[section] ??= {};
+    for (const [k, v] of Object.entries(gen[section] as Record<string, string>)) {
+      const placeholder = section === "scripts" && k === "test" && cur[section][k] === NPM_PLACEHOLDER_TEST;
+      if (cur[section][k] === undefined || placeholder) {
+        cur[section][k] = v;
+        added.push(`${section}.${k}`);
+      }
+    }
+  }
+  return { text: JSON.stringify(cur, null, 2) + "\n", added };
+}
+
 export async function writeProject(dir: string, files: PlannedFile[], force = false): Promise<string[]> {
   const log: string[] = [];
   for (const f of files) {
     const p = join(dir, f.path);
+    if (f.path === "package.json" && existsSync(p) && !force) {
+      const { text, added } = mergePackageJson(await readFile(p, "utf8"), f.content);
+      if (added.length) await writeFile(p, text);
+      log.push(added.length ? `merged package.json (added ${added.join(", ")})` : "keep package.json (yours)");
+      continue;
+    }
     if (f.owned && existsSync(p) && !force) {
       log.push(`keep ${f.path} (yours; --force to overwrite)`);
       continue;

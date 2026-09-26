@@ -10,7 +10,7 @@
  */
 import { hashKind } from "../hash/index.js";
 
-export type ImportSource = "supabase" | "firebase" | "auth0";
+export type ImportSource = "supabase" | "firebase" | "auth0" | "generic";
 
 export interface ImportRecord {
   sourceId: string;

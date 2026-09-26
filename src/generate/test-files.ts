@@ -29,6 +29,7 @@ export const FIXTURES: Record<string, string> = {
   supabase: "supabase-users.json",
   firebase: "firebase-users.json",
   auth0: "auth0-users.ndjson",
+  generic: "generic-users.csv",
 };
 
 function signInKind(a: Answers): "password" | "magic" | "google" {

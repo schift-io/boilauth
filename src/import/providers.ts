@@ -6,6 +6,9 @@
  * Firebase  — `firebase auth:export users.json|users.csv`. Hashes are the
  *             project's modified scrypt; you pass the project's hash params.
  * Auth0     — password-hash export (NDJSON or JSON array). bcrypt.
+ * Generic   — a file you export yourself: CSV with a header row, JSON array or
+ *             NDJSON. Columns `id`, `email`, `email_verified`, optional
+ *             `password_hash` (bcrypt or argon2id), `name`, `created_at`.
  */
 import { encodeFirebaseHash, type FirebaseProjectKey } from "../hash/index.js";
 import { csvObjects, parseCsv, toDate, type ImportRecord } from "./common.js";
@@ -106,4 +109,20 @@ export function parseAuth0Export(text: string): ImportRecord[] {
       createdAt: toDate(r.created_at),
     };
   });
+}
+
+// ---------------------------------------------------------------- Generic
+const TRUE = new Set(["true", "1", "yes", "t"]);
+
+export function parseGenericExport(text: string): ImportRecord[] {
+  const t = text.trim();
+  const rows = (t.startsWith("[") || t.startsWith("{") ? asRows(t) : csvObjects(t)) as Record<string, any>[];
+  return rows.map((r) => ({
+    sourceId: String(r.id ?? r.email ?? ""),
+    email: String(r.email ?? ""),
+    emailVerified: r.email_verified === true || TRUE.has(String(r.email_verified ?? "").toLowerCase()),
+    name: r.name || null,
+    passwordHash: hashOrNull(r.password_hash),
+    createdAt: toDate(r.created_at),
+  }));
 }

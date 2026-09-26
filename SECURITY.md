@@ -1,18 +1,19 @@
 # Security policy
 
-boilauth is pre-release (0.x). An independent external security review is a
-release gate for 1.0; until it is done, do not treat this package as reviewed.
+boilauth is pre-release (0.x). It runs in your environment against your
+database; the auth core is [Better Auth](https://better-auth.com).
 
 ## Reporting
 
-Please report vulnerabilities privately — do not open a public issue.
-Contact: <SECURITY_CONTACT — to be set before first public release>
+Report vulnerabilities privately through GitHub security advisories:
+<https://github.com/schift-io/boilauth/security/advisories/new>.
+Please do not open a public issue.
 
 ## Advisories
 
-Fixed issues are published as entries in an advisory feed
-(`{ advisories: [{ id, affected, fixed, severity, summary }] }`), which
-`npx boilauth check-updates --feed <url>` reads on request.
+Fixed issues are published as GitHub security advisories and as entries in an
+advisory feed (`{ advisories: [{ id, affected, fixed, severity, summary }] }`),
+which `npx boilauth check-updates --feed <url>` reads on request.
 
 ## Scope
 

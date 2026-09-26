@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { DEFAULT_ANSWERS, getPath, normalizeAnswers, validateAnswers } from "../src/wizard/answers.js";
 import { QUESTIONS, type Question } from "../src/wizard/questions.js";
-import { parseOverride, runWizard } from "../src/wizard/run.js";
-import { planProject } from "../src/generate/project.js";
+import { offeredOptions, parseOverride, runWizard } from "../src/wizard/run.js";
+import { mergePackageJson, packageJson, planProject } from "../src/generate/project.js";
 
 test("one question per policy key in docs/EDGE_CASES.md, and every question key is a real answer field", () => {
   const doc = readFileSync(new URL("../docs/EDGE_CASES.md", import.meta.url), "utf8");
@@ -35,6 +35,7 @@ test("interactive run: `when` hides questions that do not apply, hidden options 
   const asked: string[] = [];
   const offered: Record<string, string[]> = {};
   const script: Record<string, unknown> = {
+    "situation.existingUsers": true,
     "signIn.emailPassword": true,
     "signIn.oauth": [],
     "migration.sources": ["firebase"],
@@ -69,6 +70,65 @@ test("re-run: keys already in the answers file are not asked again; --set overri
   assert.deepEqual(await runWizard({ yes: true, existing: a as never }), a, "same answers in, same answers out");
 });
 
+/** Runs the wizard answering only `script`; everything else keeps the offered default. */
+async function answer(script: Record<string, unknown>) {
+  const asked: string[] = [];
+  const offered: Record<string, string[]> = {};
+  const a = await runWizard({
+    yes: false, existing: null,
+    ask: async (q, current, ans) => {
+      asked.push(q.key);
+      offered[q.key] = offeredOptions(q, ans).map((o) => o.value);
+      return q.key in script ? script[q.key] : current;
+    },
+  });
+  return { a, asked, offered };
+}
+
+test("situation comes first; with no existing users the migration questions are skipped", async () => {
+  const { a, asked } = await answer({});
+  assert.deepEqual(asked.slice(0, 2), ["situation.existingUsers", "situation.audience"]);
+  for (const k of ["situation.currentSignIn", "migration.sources", "situation.sourceVerifiedEmail"]) assert.ok(!asked.includes(k), k);
+  assert.deepEqual(a, DEFAULT_ANSWERS, "accepting every default = --yes");
+});
+
+test("existing users: today's sign-in methods become the defaults, sources asked right after", async () => {
+  const { a, asked } = await answer({
+    "situation.existingUsers": true,
+    "situation.currentSignIn": ["email_password", "kakao", "google"],
+    "migration.sources": ["supabase"],
+    "situation.sourceVerifiedEmail": "no",
+  });
+  assert.deepEqual(asked.slice(0, 5), ["situation.existingUsers", "situation.currentSignIn", "migration.sources", "situation.sourceVerifiedEmail", "situation.audience"]);
+  assert.equal(a.signIn.emailPassword, true);
+  assert.deepEqual(a.signIn.oauth, ["kakao", "google"]);
+  assert.deepEqual(a.migration.sources, ["supabase"]);
+  assert.equal(a.email.verification, "optional", "unverified source: imported users can still sign in");
+  assert.ok(asked.includes("email.verification") && asked.includes("signIn.oauth"), "derived defaults are still asked");
+});
+
+test("existing users without passwords are not asked where their hashes are", async () => {
+  const { a, asked } = await answer({ "situation.existingUsers": true, "situation.currentSignIn": ["magic_link"] });
+  assert.ok(!asked.includes("migration.sources"));
+  assert.deepEqual([a.signIn.emailPassword, a.signIn.magicLink], [false, true]);
+  assert.deepEqual(validateAnswers(a), []);
+});
+
+test("audience sets roles and MFA defaults; an explicit answer wins", async () => {
+  assert.equal((await answer({ "situation.audience": "b2b" })).a.roles.mode, "organizations");
+  const internal = (await answer({ "situation.audience": "internal" })).a;
+  assert.deepEqual([internal.roles.mode, internal.mfa.mode], ["admin", "totp_required_admin"]);
+  const overridden = (await answer({ "situation.audience": "internal", "mfa.mode": "off" })).a;
+  assert.equal(overridden.mfa.mode, "off");
+  assert.equal(normalizeAnswers({ situation: { audience: "b2b" }, roles: { mode: "none" } }).roles.mode, "none");
+});
+
+test("consumer apps see Kakao and Naver first; business apps keep the default order", async () => {
+  const b2c = (await answer({})).offered["signIn.oauth"];
+  assert.deepEqual(b2c.slice(0, 2), ["kakao", "naver"]);
+  assert.deepEqual((await answer({ "situation.audience": "b2b" })).offered["signIn.oauth"].slice(0, 2), ["google", "github"]);
+});
+
 test("--yes takes the defaults from the doc", async () => {
   assert.deepEqual(await runWizard({ yes: true, existing: null }), DEFAULT_ANSWERS);
 });
@@ -100,4 +160,19 @@ test("generated code imports only the chosen modules", () => {
   const files = planProject(normalizeAnswers({ roles: { mode: "custom" } })).map((f) => f.path);
   assert.ok(files.includes("src/permissions.ts"));
   assert.ok(!planProject(DEFAULT_ANSWERS).some((f) => f.path === "src/permissions.ts"));
+});
+
+test("init adds what it needs to an existing package.json and keeps the developer's values", () => {
+  const mine = JSON.stringify({ name: "shop", scripts: { test: 'echo "Error: no test specified" && exit 1', start: "node ." }, dependencies: { boilauth: "file:../boilauth.tgz" } });
+  const { text, added } = mergePackageJson(mine, packageJson(DEFAULT_ANSWERS));
+  const out = JSON.parse(text);
+  assert.equal(out.name, "shop");
+  assert.equal(out.type, "module");
+  assert.equal(out.dependencies.boilauth, "file:../boilauth.tgz", "existing dependency kept");
+  assert.ok(out.dependencies["better-auth"] && out.devDependencies.tsx);
+  assert.match(out.scripts.test, /--test test/, "npm placeholder test script replaced");
+  assert.equal(out.scripts.start, "node .");
+  assert.ok(added.includes("scripts.migrate"));
+  const again = mergePackageJson(text, packageJson(DEFAULT_ANSWERS));
+  assert.deepEqual(again.added, [], "second init adds nothing");
 });
