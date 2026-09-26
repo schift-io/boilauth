@@ -255,3 +255,15 @@ proxy: chain = X-Forwarded-For + socket; from the right, skip hops in trustedPro
 header: ip = first value of the named header (platform overwrites it).
 The wrapper deletes any client-sent x-boilauth-client-ip, sets it to the resolved ip, and Better Auth reads only that header
 (ipv6Subnet 64). boilauth's own counters key on ipKey(ip) (IPv6 -> /64). Production + no ip -> 500 CLIENT_IP_UNAVAILABLE.
+
+## [F2] SMS pumping — `src/modules/phone.ts`
+number outside allowedCountryCodes -> 400 INVALID_PHONE_NUMBER before any SMS (validator)
+every SMS send (/phone-number/send-otp, /phone-number/request-password-reset) of an allowed number counts
+boilauth-sms-budget in the rateLimit storage; over smsPerHour -> 429 SMS_BUDGET_EXCEEDED + Retry-After.
+Refused numbers do not count. Per IP and per number the send limits (L3) still apply.
+
+## [F7] Enumeration hardening
+sign-up with verification optional: autoSignIn false -> duplicate answers 200 { token: null } like a new user.
+/sign-in/username, /sign-in/phone-number: no account, no password, or (phone) unverified -> dummy hash first,
+so every branch costs one hash.
+/is-username-available: per IP per hour (default 30); 0 -> disabledPaths (404).

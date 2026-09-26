@@ -32,10 +32,19 @@ export interface Answers {
     firebase: { keyId: string; saltSeparator: string; rounds: number; memCost: number };
   };
   email: { verification: "required" | "optional" };
+  /** Phone sign-in: country calling codes that may receive SMS (empty = every country). */
+  phone: { allowedCountries: string[] };
   linking: { mode: "verified_only" | "never" };
   password: { minLength: number; breachedCheck: "off" | "hibp" };
   lockout: { maxFailures: number; minutes: number; accountMaxFailures: number };
-  rateLimit: { signInPerMinute: number; sendPerIpPerHour: number; sendPerAccountPerHour: number; storage: "database" | "memory" };
+  rateLimit: {
+    signInPerMinute: number;
+    sendPerIpPerHour: number;
+    sendPerAccountPerHour: number;
+    smsPerHour: number;
+    usernameCheckPerIpPerHour: number;
+    storage: "database" | "memory";
+  };
   session: { days: number; revokeOnPasswordChange: boolean; devices: "multi" | "single"; bearer: boolean };
   mfa: { mode: "off" | "totp_optional" | "totp_required_admin"; backupCodes: number; emailOtp: boolean };
   roles: { mode: "none" | "admin" | "custom" | "organizations"; custom: string[]; orgCreation: "any_user" | "admin_only"; hideAdmin: boolean };
@@ -56,10 +65,11 @@ export const DEFAULT_ANSWERS: Answers = {
   signIn: { emailPassword: true, username: false, magicLink: false, emailOtp: false, phone: false, oauth: [] },
   migration: { sources: [], firebase: { keyId: "firebase", saltSeparator: "Bw==", rounds: 8, memCost: 14 } },
   email: { verification: "required" },
+  phone: { allowedCountries: [] },
   linking: { mode: "verified_only" },
   password: { minLength: 10, breachedCheck: "off" },
   lockout: { maxFailures: 5, minutes: 15, accountMaxFailures: 20 },
-  rateLimit: { signInPerMinute: 10, sendPerIpPerHour: 10, sendPerAccountPerHour: 5, storage: "database" },
+  rateLimit: { signInPerMinute: 10, sendPerIpPerHour: 10, sendPerAccountPerHour: 5, smsPerHour: 100, usernameCheckPerIpPerHour: 30, storage: "database" },
   session: { days: 7, revokeOnPasswordChange: true, devices: "multi", bearer: false },
   mfa: { mode: "off", backupCodes: 10, emailOtp: false },
   roles: { mode: "admin", custom: ["admin", "editor", "user"], orgCreation: "any_user", hideAdmin: false },
@@ -112,6 +122,9 @@ export function validateAnswers(a: Answers): string[] {
   int(a.rateLimit.signInPerMinute, 1, 1000, "rateLimit.signInPerMinute");
   int(a.rateLimit.sendPerIpPerHour, 0, 1000, "rateLimit.sendPerIpPerHour");
   int(a.rateLimit.sendPerAccountPerHour, 0, 1000, "rateLimit.sendPerAccountPerHour");
+  int(a.rateLimit.smsPerHour, 0, 100000, "rateLimit.smsPerHour");
+  int(a.rateLimit.usernameCheckPerIpPerHour, 0, 10000, "rateLimit.usernameCheckPerIpPerHour");
+  for (const c of a.phone.allowedCountries) if (!/^[1-9]\d{0,2}$/.test(c)) errs.push(`phone.allowedCountries: not a calling code: ${c}`);
   if (!["database", "memory"].includes(a.rateLimit.storage)) errs.push(`rateLimit.storage: unknown ${a.rateLimit.storage}`);
   if (!["delete", "anonymize"].includes(a.deletion.records)) errs.push(`deletion.records: unknown ${a.deletion.records}`);
   if (!["block", "transfer_to_oldest_admin"].includes(a.deletion.lastOrgOwner)) errs.push(`deletion.lastOrgOwner: unknown ${a.deletion.lastOrgOwner}`);

@@ -13,7 +13,7 @@ import { admin, bearer, username as usernamePlugin } from "better-auth/plugins";
 import { createPasswordHasher, type Argon2Params, type FirebaseProjectKey } from "./hash/index.js";
 import { boilauthPlugin, type LockoutOptions } from "./plugin.js";
 import { normalizeUsername, usernamePluginOptions, type UsernameRules } from "./modules/username.js";
-import { phonePlugin, type PhoneOptions } from "./modules/phone.js";
+import { phonePlugins, type PhoneOptions } from "./modules/phone.js";
 import { SEND_LIMIT_PLUGIN_ID, withRateLimitHeaders } from "./modules/rate-limit.js";
 import { hideAdminRoutes } from "./modules/admin-hide.js";
 import { CLIENT_IP_HEADER, withClientIp, type ClientIpConfig } from "./modules/client-ip.js";
@@ -76,6 +76,11 @@ export interface BoilAuthOptions {
    * rate limit cover this path as they cover /sign-in/email.
    */
   username?: UsernameRules;
+  /**
+   * POST /is-username-available per IP per hour (default 30). 0 removes the endpoint: it
+   * answers whether a username is taken to anyone.
+   */
+  usernameCheckPerIpPerHour?: number;
   /** Phone number sign-in (SMS codes, number + password) with boilauth's presets; see boilauth/phone. */
   phone?: PhoneOptions;
   /** Better Auth's admin plugin (role column). Default true; set false for no roles, or pass your own admin() in plugins. */
@@ -124,6 +129,8 @@ export function boilAuthOptions(o: BoilAuthOptions) {
   const signInPerMinute = o.rateLimitSignInPerMinute ?? PRESETS.rateLimit.customRules["/sign-in/email"].max;
   // boilauth/rate-limit goes first so its per-IP rules win over later plugins' own (Better Auth takes the first match).
   const sendLimit = userPlugins.find((p) => p.id === SEND_LIMIT_PLUGIN_ID);
+  const usernameChecks = o.username ? (o.usernameCheckPerIpPerHour ?? 30) : 0;
+  const requireVerification = o.requireEmailVerification ?? Boolean(sendVerification);
   const { "/request-password-reset": resetRule, ...coreRules } = PRESETS.rateLimit.customRules;
   const options = {
     database: o.database,
@@ -135,7 +142,10 @@ export function boilAuthOptions(o: BoilAuthOptions) {
       enabled: o.emailPassword ?? true,
       minPasswordLength: o.minPasswordLength ?? PRESETS.minPasswordLength,
       maxPasswordLength: PRESETS.maxPasswordLength,
-      requireEmailVerification: o.requireEmailVerification ?? Boolean(sendVerification),
+      requireEmailVerification: requireVerification,
+      // Without required verification Better Auth signs a new user in and tells a duplicate
+      // sign-up apart (422); autoSignIn false gives the same answer either way (audit F5).
+      ...(requireVerification ? {} : { autoSignIn: false }),
       revokeSessionsOnPasswordReset: true,
       ...(sendReset ? { sendResetPassword: sendReset } : {}),
       ...extra.emailAndPassword,
@@ -145,6 +155,7 @@ export function boilAuthOptions(o: BoilAuthOptions) {
       ...(sendVerification ? { sendVerificationEmail: sendVerification, sendOnSignUp: true } : {}),
       ...extra.emailVerification,
     },
+    ...(o.username && usernameChecks === 0 ? { disabledPaths: [...(extra.disabledPaths ?? []), "/is-username-available"] } : {}),
     session: {
       ...PRESETS.session,
       ...(o.sessionDays ? { expiresIn: o.sessionDays * 86400 } : {}),
@@ -168,6 +179,7 @@ export function boilAuthOptions(o: BoilAuthOptions) {
         ...(sendLimit ? {} : { "/request-password-reset": resetRule }),
         "/sign-in/email": { window: 60, max: signInPerMinute },
         ...(o.username ? { "/sign-in/username": { window: 60, max: signInPerMinute } } : {}),
+        ...(usernameChecks > 0 ? { "/is-username-available": { window: 3600, max: usernameChecks } } : {}),
         ...(o.phone ? { "/sign-in/phone-number": { window: 60, max: signInPerMinute } } : {}),
       },
       ...extra.rateLimit,
@@ -192,7 +204,7 @@ export function boilAuthOptions(o: BoilAuthOptions) {
         phoneSignIn: Boolean(o.phone),
       }),
       ...(o.username ? [usernamePlugin(usernamePluginOptions(o.username))] : []),
-      ...(o.phone ? [phonePlugin(o.phone)] : []),
+      ...(o.phone ? phonePlugins(o.phone, o.now) : []),
       ...(o.hideAdminRoutes ? [hideAdminRoutes()] : []),
       ...(o.bearer ? [bearer()] : []),
       ...(wantsAdmin ? [admin()] : []),

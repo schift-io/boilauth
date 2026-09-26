@@ -1,0 +1,8 @@
+test("username: /is-username-available answers {{PER_HOUR}} checks per IP per hour, then 429", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const ip = h.nextIp();
+  const statuses: number[] = [];
+  for (let i = 0; i <= {{PER_HOUR}}; i++) statuses.push((await h.call(auth, "/is-username-available", { body: { username: `probe${i}` }, ip })).status);
+  assert.equal(statuses.filter((s) => s === 200).length, {{PER_HOUR}});
+  assert.equal(statuses.at(-1), 429);
+});

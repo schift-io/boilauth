@@ -130,7 +130,12 @@ export function authFile(a: Answers): string {
   }
   if (a.migration.sources.includes("firebase")) opts.push("firebaseKeys: d.firebaseKeys");
   if (username) opts.push("username: d.usernameRules");
-  if (a.signIn.phone) opts.push("phone: { sendSms: d.sms }");
+  if (a.signIn.phone) {
+    const ph = ["sendSms: d.sms", `smsPerHour: ${a.rateLimit.smsPerHour}`];
+    if (a.phone.allowedCountries.length) ph.push(`allowedCountryCodes: ${JSON.stringify(a.phone.allowedCountries)}`);
+    opts.push(`phone: { ${ph.join(", ")} }`);
+  }
+  if (username) opts.push(`usernameCheckPerIpPerHour: ${a.rateLimit.usernameCheckPerIpPerHour}`);
   if (oauth.length) {
     opts.push(`accountLinking: ${JSON.stringify(a.linking.mode)}`);
     opts.push("socialProviders: d.oauth");

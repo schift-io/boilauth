@@ -115,6 +115,11 @@ export const QUESTIONS: Question[] = [
     message: "Phone numbers too? (users attach one by SMS code, then sign in by SMS code or number + password; you connect the SMS sender in src/sms.ts)",
   },
   {
+    key: "phone.allowedCountries", group: "B. Sign-in", type: "text", when: (a) => a.signIn.phone,
+    message: "Country calling codes that may receive SMS, comma separated, e.g. 82,1 (empty = every country)",
+    parse: (raw) => raw.split(",").map((s) => s.trim().replace(/^\+/, "")).filter(Boolean),
+  },
+  {
     key: "signIn.oauth", group: "B. Sign-in", type: "multiselect",
     message: "OAuth providers (space to toggle, none is fine)",
     options: OAUTH_OPTIONS,
@@ -167,6 +172,14 @@ export const QUESTIONS: Question[] = [
   {
     key: "rateLimit.sendPerAccountPerHour", group: "G. Lockout and sessions", type: "number", when: sends,
     message: "Mail/SMS sends per email address or phone number per hour, from any IP (0 = off)",
+  },
+  {
+    key: "rateLimit.smsPerHour", group: "G. Lockout and sessions", type: "number", when: (a) => a.signIn.phone,
+    message: "SMS sends per hour across the whole site, all numbers and IPs (0 = no cap)",
+  },
+  {
+    key: "rateLimit.usernameCheckPerIpPerHour", group: "G. Lockout and sessions", type: "number", when: (a) => a.signIn.emailPassword && a.signIn.username,
+    message: "Username availability checks per IP per hour (0 = remove the endpoint)",
   },
   {
     key: "rateLimit.storage", group: "G. Lockout and sessions", type: "select",

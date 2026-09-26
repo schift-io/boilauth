@@ -143,6 +143,18 @@ export function boilauthPlugin(opts: BoilauthPluginOptions) {
     hooks: {
       before: [
         {
+          // Username and phone sign-in skip the password hash when the account has no password or
+          // (phone) does not exist, which tells those accounts apart by timing (audit F6/F16).
+          matcher: (ctx) => ctx.path === SIGN_IN_USERNAME || ctx.path === SIGN_IN_PHONE,
+          handler: createAuthMiddleware(async (ctx) => {
+            if (!isSignIn(ctx.path)) return;
+            const u = (await target(ctx)) as (LockFields & { phoneNumberVerified?: boolean }) | null;
+            const hasPassword = u ? Boolean((await ctx.context.internalAdapter.findCredentialAccount(u.id))?.password) : false;
+            const reachesVerify = u && hasPassword && (ctx.path !== SIGN_IN_PHONE || u.phoneNumberVerified);
+            if (!reachesVerify) await opts.hasher.hash(String(ctx.body?.password ?? ""));
+          }),
+        },
+        {
           matcher: (ctx) => isSignIn(ctx.path),
           handler: createAuthMiddleware(async (ctx) => {
             if (opts.lockout.maxFailures <= 0) return;

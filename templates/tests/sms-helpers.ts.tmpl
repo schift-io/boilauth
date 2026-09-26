@@ -8,7 +8,7 @@ export function lastSms(to: string): string {
 }
 
 let phoneN = 0;
-/** A fresh E.164 number (+82 10 ...). */
+/** A fresh E.164 number in an allowed country (+{{PHONE_CC}} 10 ...). */
 export function newPhone(): string {
-  return `+8210${String(Date.now() % 1e4).padStart(4, "0")}${String(++phoneN).padStart(4, "0")}`;
+  return `+{{PHONE_CC}}10${String(Date.now() % 1e4).padStart(4, "0")}${String(++phoneN).padStart(4, "0")}`;
 }

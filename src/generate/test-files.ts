@@ -83,7 +83,7 @@ async function testDatabase(): Promise<AuthDeps["database"]> {
   let signInHelpers = tpl(`signin-${signInKind(a)}`, a.signIn.emailPassword ? { VERIFICATION_REQUIRED: a.email.verification === "required" } : {});
   if (a.signIn.oauth.length) signInHelpers = tpl("oauth-helpers") + "\n" + signInHelpers;
   if (a.signIn.emailOtp) signInHelpers = tpl("code-helpers") + "\n" + signInHelpers;
-  if (a.signIn.phone) signInHelpers = tpl("sms-helpers") + "\n" + signInHelpers;
+  if (a.signIn.phone) signInHelpers = tpl("sms-helpers", { PHONE_CC: a.phone.allowedCountries[0] ?? "82" }) + "\n" + signInHelpers;
   const firebaseKey = a.migration.sources.includes("firebase")
     ? `/** Public sample params from the firebase/scrypt README, not a real project key. */
 export const FIREBASE_SAMPLE_KEY = {
@@ -164,6 +164,7 @@ export function testFile(a: Answers): string {
     for (const s of a.migration.sources) blocks.push(tpl(`migration-${s}`));
     if (a.signIn.username) {
       blocks.push(tpl("username"));
+      blocks.push(tpl(a.rateLimit.usernameCheckPerIpPerHour > 0 ? "username-check-limited" : "username-check-off", { PER_HOUR: a.rateLimit.usernameCheckPerIpPerHour }));
       if (a.lockout.maxFailures > 0) blocks.push(tpl("username-lockout", { MAX_FAILURES: a.lockout.maxFailures }));
     }
   }
@@ -171,6 +172,7 @@ export function testFile(a: Answers): string {
   if (a.signIn.emailOtp) blocks.push(tpl("email-otp"));
   if (a.signIn.phone) {
     blocks.push(tpl("phone"));
+    blocks.push(smsLimitsBlock(a));
     if (pw) {
       const lock = a.lockout.maxFailures > 0 ? tpl("phone-lockout", { MAX_FAILURES: a.lockout.maxFailures }) : "";
       blocks.push(tpl("phone-password", { PHONE_LOCKOUT: lock }));
@@ -378,4 +380,22 @@ function clientIpBlock(a: Answers): string {
           }
         : { HEADERS: `{ ${JSON.stringify(n.clientIpHeader)}: "203.0.113.9", "x-forwarded-for": \`198.51.100.\${i + 1}\` }`, INFO: "undefined", MODE: `the ${n.clientIpHeader} header` };
   return tpl("client-ip", { ...request, RATE: a.rateLimit.signInPerMinute });
+}
+
+/** SMS pumping guards (audit F2): the country allowlist and the site-wide SMS budget. */
+function smsLimitsBlock(a: Answers): string {
+  const out: string[] = [];
+  if (a.phone.allowedCountries.length) {
+    const other = ["234", "7", "62", "44"].find((c) => !a.phone.allowedCountries.includes(c))!;
+    out.push(`test("phone: numbers outside the allowed countries (${a.phone.allowedCountries.join(", ")}) get 400 and no SMS", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const before = h.smsOutbox.length;
+  const r = await h.call(auth, "/phone-number/send-otp", { body: { phoneNumber: "+${other}9012345678" } });
+  assert.equal(r.status, 400);
+  assert.equal(h.smsOutbox.length, before);
+});
+`);
+  }
+  if (a.rateLimit.smsPerHour > 0 && a.rateLimit.smsPerHour <= 300) out.push(tpl("sms-budget", { PER_HOUR: a.rateLimit.smsPerHour }));
+  return out.join("\n");
 }

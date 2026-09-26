@@ -1,0 +1,4 @@
+test("username: /is-username-available is removed", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  assert.equal((await h.call(auth, "/is-username-available", { body: { username: "someone" } })).status, 404);
+});

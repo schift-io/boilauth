@@ -1,0 +1,7 @@
+test("phone: {{PER_HOUR}} SMS per hour across the site, then 429 for everyone", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const statuses: number[] = [];
+  for (let i = 0; i <= {{PER_HOUR}}; i++) statuses.push((await h.call(auth, "/phone-number/send-otp", { body: { phoneNumber: h.newPhone() } })).status);
+  assert.equal(statuses.filter((s) => s === 200).length, {{PER_HOUR}});
+  assert.equal(statuses.at(-1), 429);
+});

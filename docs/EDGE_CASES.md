@@ -55,6 +55,7 @@ IPv6 clients are counted per /64. In production a request with no resolvable IP 
 | Username sign-in (needs email + password) | `signIn.username` | yes / **no**; rules in `boilauth.username.yaml` | better-auth `username` + `boilauth/username` | U1 |
 | Magic link by email | `signIn.magicLink` | yes / **no** | better-auth `magicLink` | B2 |
 | Phone numbers (attach by SMS code; sign in by SMS code, or number + password) | `signIn.phone` | yes / **no** (E.164 only, 6 digits, 5 minutes, 3 tries, verified numbers only; sender in `src/sms.ts`) | better-auth `phoneNumber` + `boilauth/phone` | B5 |
+| Countries that may receive SMS | `phone.allowedCountries` | comma list of calling codes, **none** (every country) | `boilauth/phone` | B5 F2 |
 | One-time code by email | `signIn.emailOtp` | yes / **no** (6 digits, 5 minutes, 3 tries, stored hashed) | better-auth `emailOTP` | B4 |
 | OAuth providers | `signIn.oauth` | multi: `google` `github` `apple` `kakao` `naver`, **none** | better-auth `socialProviders` | B3 |
 
@@ -82,6 +83,9 @@ The Firebase signer key is never an answer; it is read from `FIREBASE_SIGNER_KEY
 |---|---|---|---|---|
 | Unverified email signs in with a password | `email.verification` | **`required`** (403 until verified) / `optional` | core | E1 |
 
+With `optional`, sign-up does not sign the new user in (Better Auth `autoSignIn: false`), so a
+duplicate sign-up answers exactly like a new one instead of 422 `USER_ALREADY_EXISTS` (audit F5).
+
 Either way a verification mail is sent on sign-up. Import merges always need verified emails on both sides (M1), independent of this key.
 
 ## E. Account linking (only with OAuth)
@@ -107,6 +111,8 @@ Either way a verification mail is sent on sign-up. Import merges always need ver
 | Sign-in attempts per IP | `rateLimit.signInPerMinute` | number, **10** | core | L2 |
 | Mail/SMS sends per IP (only with a send endpoint) | `rateLimit.sendPerIpPerHour` | number 0..1000, **10** per hour per send endpoint (0 = Better Auth's per-minute rules) | `boilauth/rate-limit` | L3 |
 | Mail/SMS sends per address (only with a send endpoint) | `rateLimit.sendPerAccountPerHour` | number 0..1000, **5** per hour per email or phone number, from any IP (0 = off) | `boilauth/rate-limit` | L3 |
+| SMS sends per hour across the site | `rateLimit.smsPerHour` | number, **100** (0 = no cap; asked with phone) | `boilauth/phone` | F2 |
+| Username availability checks per IP per hour | `rateLimit.usernameCheckPerIpPerHour` | number, **30** (0 = endpoint removed; asked with username) | core | F7 |
 | Where counters live | `rateLimit.storage` | **`database`** (shared by every instance) / `memory` (one process) | core | L2 |
 | Session lifetime | `session.days` | number 1..90, **7** | core | S1 |
 | Password change | `session.revokeOnPasswordChange` | **yes** (other sessions end) / no | `boilauth/sessions` | S2 |
