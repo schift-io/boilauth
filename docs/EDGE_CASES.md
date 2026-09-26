@@ -38,7 +38,7 @@ which are still asked:
 | Where users live | `runtime.database` | **`sqlite`** (node:sqlite) / `postgres` (pg Pool) | config | X1 |
 | Which client IP per-IP controls count | `network.clientIp` | **`socket`** (the connection's address; mount with `boilauth/node` or pass `auth.handler(req, { clientIp })`) / `proxy` (X-Forwarded-For walked from the right past your proxies) / `header` (one header your platform overwrites) | `boilauth/client-ip` | N1 |
 | Your proxies | `network.trustedProxies` | comma list of IPs/CIDRs, **none** (asked with proxy) | `boilauth/client-ip` | N1 |
-| Platform client-IP header | `network.clientIpHeader` | header name, **`cf-connecting-ip`** (asked with header) | `boilauth/client-ip` | N1 |
+| Platform client-IP header | `network.clientIpHeader` | header name, **`cf-connecting-ip`** (asked with header; must carry exactly one address, a value with a comma counts as no IP) | `boilauth/client-ip` | N1 |
 
 Adapter is Better Auth's built-in Kysely adapter for both (not asked). Language is TypeScript (not asked).
 
@@ -125,7 +125,7 @@ Either way a verification mail is sent on sign-up. Import merges always need ver
 | Absolute session lifetime, however active | `session.absoluteDays` | number 1..365, **30** (ASVS 3.3.2) | core | S1 |
 | Password change | `session.revokeOnPasswordChange` | **yes** (other sessions end) / no | `boilauth/sessions` | S2 |
 | Devices | `session.devices` | **`multi`** / `single` (a new sign-in ends the other sessions) | `boilauth/sessions` | S3 |
-| Mobile and API clients | `session.bearer` | yes / **no** (also accept `Authorization: Bearer <token>`; sign-in answers with `set-auth-token`) | better-auth `bearer` | S4 |
+| Mobile and API clients | `session.bearer` | yes / **no** (also accept `Authorization: Bearer <token>`; sign-in answers with `set-auth-token`, a two-factor challenge does not) | better-auth `bearer` | S4 |
 
 The lockout has two layers since 0.3.0 (audit F4: a plain account lock after 5 wrong passwords let
 anyone lock the owner out, forever, from any IPs). One source is locked for this account after
@@ -148,7 +148,7 @@ A fresh session token on every sign-in and ending all sessions on password reset
 | Second factor | `mfa.mode` | **`off`** / `totp_optional` / `totp_required_admin` | better-auth `twoFactor` (+ `boilauth/mfa`) | H1 H2 |
 | Backup codes per user | `mfa.backupCodes` | number 5..20, **10** (each usable once) | better-auth `twoFactor` | H3 |
 | Code by email as the second step | `mfa.emailOtp` | yes / **no** (6 digits, 5 minutes, 3 tries, stored hashed) | better-auth `twoFactor` otp | H4 |
-| Second factor after passwordless sign-in too | `mfa.allSignIns` | **yes** (magic link, email/SMS code, OAuth of a two-factor user answer `twoFactorRedirect`) / no | `boilauth/mfa-all` | H3 |
+| Second factor after passwordless sign-in too | `mfa.allSignIns` | **yes** (magic link, email/SMS code, OAuth, and email verification with auto sign-in, of a two-factor user answer `twoFactorRedirect`) / no | `boilauth/mfa-all` | H3 |
 
 An email code (H4) is an alternative second step for normal sign-in only; admin endpoints under
 `totp_required_admin` still need TOTP or a backup code. Email-code sign-in (B4), like magic link,

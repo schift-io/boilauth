@@ -320,7 +320,11 @@ A test fails if any module's live columns drift from its file.
   (Have I Been Pwned range API) is opt-in because it makes a network call.
 - Sessions end 30 days after sign-in however active they are (`session.absoluteDays`).
 - A user with two-factor on passes it after every first factor: password, magic link,
-  email or SMS code, OAuth (`mfa.allSignIns`, default on).
+  email or SMS code, OAuth, and email verification if you turn on auto sign-in there
+  (`mfa.allSignIns`, default on). A two-factor challenge carries no bearer token.
+- `network.clientIp = header`: the header must hold exactly one address. A value with a
+  comma (appended to by a proxy, or sent twice) counts as no IP, so point it only at a
+  header your edge overwrites.
 - The user is mailed when their password or two-factor setting changes and when many
   wrong passwords lock their account (`notify.securityChanges`); optionally on sign-in
   from a new device (`notify.newDevice`).

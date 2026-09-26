@@ -194,6 +194,8 @@ Passwordless users need a session younger than freshAge on /boilauth/delete-acco
 ## [S4] Bearer — better-auth `bearer`
 Authorization: Bearer <signed session token> is turned into the session cookie for that request;
 responses that set the session cookie also send set-auth-token. Unsigned tokens are ignored.
+A two-factor challenge (JSON twoFactorRedirect, or Location with ?twoFactorRedirect=true) never carries
+set-auth-token (re-audit L3); /two-factor/verify-* that completes the sign-in does.
 
 ## [G4] Admin route hiding
 /admin/* for a caller without an admin role (or without a session) -> 404 before the admin plugin runs.
@@ -252,7 +254,8 @@ init --yes = no existing users + b2c = the plain defaults.
 ## [N1] Client IP — `src/modules/client-ip.ts`
 socket (default): ip = the address the server adapter passes (auth.handler(req, { clientIp })); forwarded headers ignored.
 proxy: chain = X-Forwarded-For + socket; from the right, skip hops in trustedProxies; first other hop = client; garbage -> null.
-header: ip = first value of the named header (platform overwrites it).
+header: ip = the named header's value if it is exactly one address; a comma (appended to, or the header sent
+twice) -> null, like no ip (re-audit L1: a client-chosen first value must never become the key).
 The wrapper deletes any client-sent x-boilauth-client-ip, sets it to the resolved ip, and Better Auth reads only that header
 (ipv6Subnet 64). boilauth's own counters key on ipKey(ip) (IPv6 -> /64). Production + no ip -> 500 CLIENT_IP_UNAVAILABLE.
 
@@ -283,12 +286,18 @@ account-wide lock engages (L1) -> security.account_locked. Successful sign-in fr
 non-empty knownSignInSources -> security.new_device (off by default). Send failures are logged, never thrown.
 
 ## [H3] Second factor on every sign-in — `src/modules/mfa-all.ts`
-after /magic-link/verify, /sign-in/email-otp, /phone-number/verify, /sign-in/social, /callback/:id, oauth2 and one-tap:
-if the new session's user has twoFactorEnabled -> delete the session and its cookie, set the signed two_factor
+after /magic-link/verify, /sign-in/email-otp, /phone-number/verify, /sign-in/social, /callback/:id, oauth2, one-tap,
+/verify-email and /email-otp/verify-email (sign in only with autoSignInAfterVerification; re-audit L2):
+if the new session's user has twoFactorEnabled:
+  request already has a valid session of that user -> same token: pass (refresh); other token: delete the new
+  session and keep the incoming one (it passed the second factor)
+  else -> delete the session and its cookie, set the signed two_factor
 cookie (2fa-<id> -> user, attempts counter; as Better Auth's twoFactor does for passwords), then
   JSON route -> { twoFactorRedirect: true, twoFactorMethods }; redirect route -> same Location + ?twoFactorRedirect=true.
 /two-factor/verify-totp (or backup code, email second step) finishes the sign-in. Trusted-device cookie not honoured here.
 Default on (audit F11, ASVS 2.2.2); mfaOnAllSignIns: false restores the old behaviour.
+Every Better Auth 1.7.6 endpoint calling setSessionCookie is classified in the header of src/modules/mfa-all.ts
+(challenged / twoFactor plugin / already signed in / new user / admin action / plugins not offered).
 
 ## [D7] Admin removal — `src/modules/deletion.ts`
 user.delete.before (databaseHooks), only when the request path is /admin/remove-user (the admin plugin has checked

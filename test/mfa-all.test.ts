@@ -46,7 +46,7 @@ async function call(auth: Auth, path: string, o: { body?: unknown; jar?: Jar; me
   try {
     json = JSON.parse(text);
   } catch {}
-  return { status: res.status, json, location: res.headers.get("location") };
+  return { status: res.status, json, location: res.headers.get("location"), headers: res.headers };
 }
 
 async function setup(extra: Record<string, unknown> = {}) {
@@ -67,7 +67,7 @@ async function setup(extra: Record<string, unknown> = {}) {
   const en = await call(auth, "/two-factor/enable", { body: { password: "a-long-password-1" }, jar });
   const uri = en.json.totpURI as string;
   assert.equal((await call(auth, "/two-factor/verify-totp", { body: { code: totp(uri) }, jar })).status, 200);
-  return { auth, mail, uri };
+  return { auth, mail, uri, jar };
 }
 
 const sessionOf = async (auth: Auth, jar: Jar) => (await call(auth, "/get-session", { jar })).json;
@@ -100,4 +100,53 @@ test("F11: can be switched off", async () => {
   const jar: Jar = new Map();
   await call(auth, "/sign-in/email-otp", { body: { email: "m@example.com", otp: mail.at(-1)!.text }, jar });
   assert.equal((await sessionOf(auth, jar))?.user?.email, "m@example.com");
+});
+
+// Re-audit L2: paths that issue a session only when a developer turns on auto sign-in after
+// email verification (betterAuth escape hatch). A TOTP user must still pass the second factor.
+const autoSignIn = { betterAuth: { logger: { disabled: true }, emailVerification: { autoSignInAfterVerification: true } } };
+
+test("L2: /verify-email with auto sign-in asks a TOTP user for the second factor", async () => {
+  const { auth, mail } = await setup(autoSignIn);
+  await call(auth, "/send-verification-email", { body: { email: "m@example.com" } });
+  const link = mail.filter((m) => m.subject === "Verify your email").at(-1)!.text;
+  const jar: Jar = new Map();
+  const r = await call(auth, link, { jar });
+  assert.equal(await sessionOf(auth, jar), null, `no session before the second factor (${r.status} ${JSON.stringify(r.json)})`);
+  assert.ok(r.json?.twoFactorRedirect === true || /twoFactorRedirect=true/.test(r.location ?? ""), JSON.stringify(r.json));
+});
+
+test("L2: /email-otp/verify-email with auto sign-in asks a TOTP user for the second factor", async () => {
+  const { auth, mail } = await setup(autoSignIn);
+  await call(auth, "/email-otp/send-verification-otp", { body: { email: "m@example.com", type: "email-verification" } });
+  const jar: Jar = new Map();
+  const r = await call(auth, "/email-otp/verify-email", { body: { email: "m@example.com", otp: mail.at(-1)!.text }, jar });
+  assert.equal(await sessionOf(auth, jar), null, `no session before the second factor (${r.status} ${JSON.stringify(r.json)})`);
+  assert.equal(r.json?.twoFactorRedirect, true, JSON.stringify(r.json));
+});
+
+test("L2: verifying the email while already signed in keeps the session that passed the second factor", async () => {
+  const { auth, mail, jar } = await setup(autoSignIn);
+  await call(auth, "/send-verification-email", { body: { email: "m@example.com" }, jar });
+  await call(auth, mail.filter((m) => m.subject === "Verify your email").at(-1)!.text, { jar });
+  assert.equal((await sessionOf(auth, jar))?.user?.email, "m@example.com", "link verify");
+  await call(auth, "/email-otp/send-verification-otp", { body: { email: "m@example.com", type: "email-verification" }, jar });
+  await call(auth, "/email-otp/verify-email", { body: { email: "m@example.com", otp: mail.at(-1)!.text }, jar });
+  assert.equal((await sessionOf(auth, jar))?.user?.email, "m@example.com", "code verify");
+});
+
+// Re-audit L3: a 2FA challenge must not hand out a (dead) bearer token.
+test("L3: with bearer on, a 2FA challenge carries no set-auth-token; the finished sign-in does", async () => {
+  const { auth, mail, uri } = await setup({ bearer: true });
+  const pw = await call(auth, "/sign-in/email", { body: { email: "m@example.com", password: "a-long-password-1" }, jar: new Map() });
+  assert.equal(pw.json?.twoFactorRedirect, true);
+  assert.equal(pw.headers.get("set-auth-token"), null, "password sign-in challenge");
+  await call(auth, "/email-otp/send-verification-otp", { body: { email: "m@example.com", type: "sign-in" } });
+  const jar: Jar = new Map();
+  const otp = await call(auth, "/sign-in/email-otp", { body: { email: "m@example.com", otp: mail.at(-1)!.text }, jar });
+  assert.equal(otp.json?.twoFactorRedirect, true);
+  assert.equal(otp.headers.get("set-auth-token"), null, "email-code sign-in challenge");
+  const done = await call(auth, "/two-factor/verify-totp", { body: { code: totp(uri, Date.now() + 30000) }, jar });
+  assert.equal(done.status, 200);
+  assert.ok(done.headers.get("set-auth-token"), "the completed sign-in still gets its token");
 });

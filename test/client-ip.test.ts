@@ -6,6 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { BASE, makeAuth } from "./helpers.js";
+import { clientIpResolver } from "../src/modules/client-ip.js";
 
 type Handler = (req: Request, info?: { clientIp?: string | null }) => Promise<Response>;
 
@@ -109,5 +110,28 @@ test("F1: boilauth/node passes the socket address over real HTTP; rotating X-For
     assert.ok(hits >= 3, `got ${hits}x429`);
   } finally {
     server.close();
+  }
+});
+
+// Re-audit L1: header mode must not pick the leftmost of several addresses — an appendable
+// header lets the client choose that one. More than one address = no client IP (fail closed).
+test("L1: header mode refuses a header carrying more than one address", () => {
+  const resolve = clientIpResolver({ mode: "header", header: "x-real-ip" });
+  const req = (h: [string, string][]) => new Request(BASE, { headers: new Headers(h) });
+  assert.equal(resolve(req([["x-real-ip", "203.0.113.7"]])), "203.0.113.7", "a single address is used");
+  assert.equal(resolve(req([["x-real-ip", "198.51.100.66, 203.0.113.7"]])), null, "appended: attacker, real");
+  assert.equal(resolve(req([["x-real-ip", "198.51.100.66"], ["x-real-ip", "203.0.113.7"]])), null, "repeated header");
+  assert.equal(resolve(req([["x-real-ip", "203.0.113.7,"]])), null, "trailing comma");
+});
+
+test("L1: in production a multi-address header answers 500 CLIENT_IP_UNAVAILABLE, like no IP", async () => {
+  const auth = await makeAuth({ clientIp: { mode: "header", header: "x-real-ip" } });
+  const prev = process.env.NODE_ENV;
+  process.env.NODE_ENV = "production";
+  try {
+    assert.equal(await wrongSignIn(auth, { "x-real-ip": "198.51.100.66, 203.0.113.7" }), 500);
+    assert.equal(await wrongSignIn(auth, { "x-real-ip": "203.0.113.7" }), 401);
+  } finally {
+    process.env.NODE_ENV = prev;
   }
 });

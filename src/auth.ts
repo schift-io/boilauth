@@ -17,7 +17,7 @@ import { phonePlugins, type PhoneOptions } from "./modules/phone.js";
 import { SEND_LIMIT_PLUGIN_ID, withRateLimitHeaders } from "./modules/rate-limit.js";
 import { hideAdminRoutes } from "./modules/admin-hide.js";
 import { CLIENT_IP_HEADER, withClientIp, type ClientIpConfig } from "./modules/client-ip.js";
-import { mfaOnAllSignIns } from "./modules/mfa-all.js";
+import { mfaOnAllSignIns, withoutTokenOnChallenge } from "./modules/mfa-all.js";
 import { DEFAULT_SECURITY_NOTICES, notifier, securityNotices, type SecurityNotices } from "./modules/notify.js";
 
 export const PRESETS = {
@@ -247,7 +247,8 @@ export function createBoilAuth(o: BoilAuthOptions) {
   const { options, hasher } = boilAuthOptions(o);
   const auth = betterAuth(options);
   // Resolve the client IP first; Better Auth's own 429 carries only X-Retry-After, add the standard header.
-  const handler = withRateLimitHeaders(withClientIp(auth.handler, clientIpConfig(o)));
+  const resolved = withClientIp(auth.handler, clientIpConfig(o));
+  const handler = withRateLimitHeaders(o.bearer ? withoutTokenOnChallenge(resolved) : resolved);
   return Object.assign(auth, { handler, boilauth: { hasher, options, input: o } });
 }
 

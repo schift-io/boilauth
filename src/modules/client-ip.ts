@@ -17,6 +17,9 @@
  *           not in trustedProxies.
  *   header  a platform header your edge overwrites on every request
  *           (cf-connecting-ip, fly-client-ip, x-real-ip set by your nginx ...).
+ *           It must hold exactly one address: a value with a comma (appended
+ *           to, or sent twice) counts as no IP, so a client-chosen first value
+ *           never becomes the key.
  *
  * IPv6 addresses are handed over whole; Better Auth keys them on /64
  * (advanced.ipAddress.ipv6Subnet), and boilauth's own counters use ipKey().
@@ -93,7 +96,12 @@ export function clientIpResolver(cfg: ClientIpConfig = { mode: "socket" }) {
   return (req: Request, info?: RequestInfo): string | null => {
     const socket = cleanIp(info?.clientIp ?? null);
     if (cfg.mode === "socket") return socket;
-    if (cfg.mode === "header") return cleanIp(req.headers.get(cfg.header)?.split(",")[0]);
+    if (cfg.mode === "header") {
+      // One address or none: a comma means the header was appended to or repeated (Headers joins
+      // repeats with ", "), and the client could have chosen the other value (re-audit L1).
+      const value = req.headers.get(cfg.header);
+      return value && !value.includes(",") ? cleanIp(value) : null;
+    }
     // proxy: [...forwarded, socket], right to left, first hop that is not a trusted proxy.
     const chain = (req.headers.get("x-forwarded-for") ?? "")
       .split(",")
