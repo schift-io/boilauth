@@ -122,6 +122,8 @@ export function authFile(a: Answers): string {
     ...(a.rateLimit.storage === "memory" ? ['rateLimitStorage: "memory"'] : []),
     `sessionDays: ${a.session.days}`,
   ];
+  if (a.network.clientIp === "proxy") opts.push(`clientIp: { mode: "proxy", trustedProxies: ${JSON.stringify(a.network.trustedProxies)} }`);
+  if (a.network.clientIp === "header") opts.push(`clientIp: { mode: "header", header: ${JSON.stringify(a.network.clientIpHeader)} }`);
   if (pw) {
     opts.push(`minPasswordLength: ${a.password.minLength}`);
     opts.push(`lockout: { maxFailures: ${a.lockout.maxFailures}, lockMinutes: ${a.lockout.minutes} }`);

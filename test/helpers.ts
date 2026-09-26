@@ -39,7 +39,7 @@ export function freshIp(): string {
 }
 
 export async function signIn(
-  auth: { handler: (r: Request) => Promise<Response> },
+  auth: { handler: (r: Request, info?: { clientIp?: string }) => Promise<Response> },
   email: string,
   password: string,
   ip = freshIp(),
@@ -47,9 +47,10 @@ export async function signIn(
   const res = await auth.handler(
     new Request(`${BASE}/api/auth/sign-in/email`, {
       method: "POST",
-      headers: { "content-type": "application/json", origin: BASE, "x-forwarded-for": ip },
+      headers: { "content-type": "application/json", origin: BASE },
       body: JSON.stringify({ email, password }),
     }),
+    { clientIp: ip },
   );
   const body = await res.json().catch(() => null);
   return { status: res.status, body, cookie: res.headers.get("set-cookie") };

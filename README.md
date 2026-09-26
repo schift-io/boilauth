@@ -31,17 +31,25 @@ npx boilauth migrate          # creates tables and records the schema modules
 that file and regenerates the same code. Change one answer with
 `npx boilauth init --yes --set roles.mode=organizations`.
 
-Mount the generated instance in your server. It is a normal Better Auth instance:
+Mount the generated instance in your server. It is a normal Better Auth instance,
+mounted with boilauth's Node adapter so rate limits and lockout see the connection's
+address (`network.clientIp = socket`, the default):
 
 ```ts
 import auth from "./boilauth.config.js";
-import { toNodeHandler } from "better-auth/node";
+import { toNodeHandler } from "boilauth/node";
 import express from "express";
 
 const app = express();
 app.all("/api/auth/*splat", toNodeHandler(auth));   // sign-up, sign-in, session, admin …
 app.listen(3000);
 ```
+
+On other runtimes pass the address yourself: `auth.handler(request, { clientIp })`.
+Behind your own proxies answer `proxy` and list them; behind a platform that sets one
+header (Cloudflare `cf-connecting-ip`, Fly `fly-client-ip`) answer `header`. Forwarded
+headers from anyone else are ignored, and in production a request with no client IP is
+refused (500 `CLIENT_IP_UNAVAILABLE`) instead of sharing one rate-limit bucket.
 
 ## The wizard
 

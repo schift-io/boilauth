@@ -24,6 +24,8 @@ export interface Answers {
     audience: (typeof AUDIENCES)[number];
   };
   runtime: { database: "sqlite" | "postgres" };
+  /** Where the client IP comes from (rate limits, lockout, send limits). See boilauth/client-ip. */
+  network: { clientIp: "socket" | "proxy" | "header"; trustedProxies: string[]; clientIpHeader: string };
   signIn: { emailPassword: boolean; username: boolean; magicLink: boolean; emailOtp: boolean; phone: boolean; oauth: OAuthProvider[] };
   migration: {
     sources: MigrationSource[];
@@ -50,6 +52,7 @@ export const DEFAULT_ANSWERS: Answers = {
   version: 1,
   situation: { existingUsers: false, currentSignIn: ["email_password"], sourceVerifiedEmail: "yes", audience: "b2c" },
   runtime: { database: "sqlite" },
+  network: { clientIp: "socket", trustedProxies: [], clientIpHeader: "cf-connecting-ip" },
   signIn: { emailPassword: true, username: false, magicLink: false, emailOtp: false, phone: false, oauth: [] },
   migration: { sources: [], firebase: { keyId: "firebase", saltSeparator: "Bw==", rounds: 8, memCost: 14 } },
   email: { verification: "required" },
@@ -95,6 +98,12 @@ export function validateAnswers(a: Answers): string[] {
   const int = (v: number, lo: number, hi: number, key: string) => {
     if (!Number.isInteger(v) || v < lo || v > hi) errs.push(`${key}: ${v} is outside ${lo}..${hi}`);
   };
+  if (!["socket", "proxy", "header"].includes(a.network.clientIp)) errs.push(`network.clientIp: unknown ${a.network.clientIp}`);
+  if (a.network.clientIp === "proxy") {
+    if (!a.network.trustedProxies.length) errs.push("network.trustedProxies: list your proxy addresses or CIDRs");
+    for (const c of a.network.trustedProxies) if (!/^[0-9a-fA-F:.]+(\/\d{1,3})?$/.test(c)) errs.push(`network.trustedProxies: not an IP or CIDR: ${c}`);
+  }
+  if (a.network.clientIp === "header" && !/^[a-z0-9-]{1,64}$/.test(a.network.clientIpHeader)) errs.push("network.clientIpHeader: a lowercase header name");
   int(a.password.minLength, 8, 64, "password.minLength");
   int(a.lockout.maxFailures, 0, 100, "lockout.maxFailures");
   int(a.lockout.minutes, 1, 1440, "lockout.minutes");

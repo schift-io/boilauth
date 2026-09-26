@@ -19,6 +19,7 @@ const SCENARIOS: Record<string, { answers: Record<string, unknown>; postgres?: b
   defaults: { answers: {} },
   "orgs-totp-firebase-soft": {
     answers: {
+      network: { clientIp: "proxy", trustedProxies: ["10.0.0.0/8", "fd00::/8"] },
       signIn: { emailPassword: true },
       migration: { sources: ["firebase"], firebase: { keyId: "my-project", saltSeparator: "Bw==", rounds: 8, memCost: 14 } },
       email: { verification: "optional" },
@@ -33,6 +34,7 @@ const SCENARIOS: Record<string, { answers: Record<string, unknown>; postgres?: b
   },
   "custom-roles-admin-mfa-oauth": {
     answers: {
+      network: { clientIp: "header", clientIpHeader: "cf-connecting-ip" },
       signIn: { emailPassword: true, magicLink: true, emailOtp: true, phone: true, oauth: ["google", "github", "apple", "kakao", "naver"] },
       migration: { sources: ["supabase", "auth0"] },
       linking: { mode: "never" },

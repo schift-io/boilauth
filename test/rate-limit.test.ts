@@ -9,9 +9,10 @@ async function post(auth: Auth, path: string, body: unknown, ip = freshIp()) {
   const res = await auth.handler(
     new Request(`${BASE}/api/auth${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json", origin: BASE, "x-forwarded-for": ip },
+      headers: { "content-type": "application/json", origin: BASE },
       body: JSON.stringify(body),
     }),
+    { clientIp: ip },
   );
   await res.text();
   return res;

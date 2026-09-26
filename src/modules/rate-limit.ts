@@ -159,9 +159,9 @@ export function sendLimits(o: SendLimits & { now?: () => Date }): BetterAuthPlug
 }
 
 /** Wraps an auth handler so every 429 also carries the standard Retry-After header. */
-export function withRateLimitHeaders<H extends (req: Request) => Promise<Response>>(handler: H): H {
-  return (async (req: Request) => {
-    const res = await handler(req);
+export function withRateLimitHeaders<H extends (req: Request, ...rest: any[]) => Promise<Response>>(handler: H): H {
+  return (async (req: Request, ...rest: any[]) => {
+    const res = await handler(req, ...rest);
     if (res.status !== 429 || res.headers.has("Retry-After")) return res;
     const after = res.headers.get("X-Retry-After");
     if (!after) return res;

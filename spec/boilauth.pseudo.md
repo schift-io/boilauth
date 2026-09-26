@@ -244,3 +244,10 @@ b2c -> roles.mode admin (kakao, naver are extras: listed last, never preselected
 b2b -> roles.mode organizations (orgCreation any_user)
 internal -> roles.mode admin, mfa.mode totp_required_admin
 init --yes = no existing users + b2c = the plain defaults.
+
+## [N1] Client IP — `src/modules/client-ip.ts`
+socket (default): ip = the address the server adapter passes (auth.handler(req, { clientIp })); forwarded headers ignored.
+proxy: chain = X-Forwarded-For + socket; from the right, skip hops in trustedProxies; first other hop = client; garbage -> null.
+header: ip = first value of the named header (platform overwrites it).
+The wrapper deletes any client-sent x-boilauth-client-ip, sets it to the resolved ip, and Better Auth reads only that header
+(ipv6Subnet 64). boilauth's own counters key on ipKey(ip) (IPv6 -> /64). Production + no ip -> 500 CLIENT_IP_UNAVAILABLE.

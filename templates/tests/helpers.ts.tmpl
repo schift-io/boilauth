@@ -31,10 +31,28 @@ export async function makeAuth(over: Partial<AuthDeps> = {}): Promise<Auth> {
   return auth;
 }
 
+/**
+ * How this project's requests carry the client IP (network.clientIp): the socket address, a
+ * trusted proxy forwarding it in X-Forwarded-For, or a platform header.
+ */
+const IP_MODE = {{IP_MODE}} as { mode: "socket" } | { mode: "proxy"; proxy: string } | { mode: "header"; header: string };
+export function ipOf(headers: Record<string, string>, ip: string): { clientIp: string } | undefined {
+  if (IP_MODE.mode === "header") {
+    headers[IP_MODE.header] = ip;
+    return undefined;
+  }
+  if (IP_MODE.mode === "proxy") {
+    headers["x-forwarded-for"] = ip;
+    return { clientIp: IP_MODE.proxy };
+  }
+  return { clientIp: ip };
+}
+
 let ipN = 0;
+/** Test client IPs from 198.18.0.0/15 (RFC 2544 benchmarking): never one of your proxies. */
 export function nextIp(): string {
   ipN++;
-  return `10.20.${(ipN >> 8) & 255}.${ipN & 255}`;
+  return `198.${18 + ((ipN >> 16) & 1)}.${(ipN >> 8) & 255}.${ipN & 255}`;
 }
 
 let userN = 0;
@@ -56,9 +74,10 @@ export async function call(
   o: { method?: string; body?: unknown; jar?: Jar; ip?: string } = {},
 ): Promise<Reply> {
   const path = pathOrUrl.startsWith("http") ? pathOrUrl.slice(`${BASE}/api/auth`.length) : pathOrUrl;
-  const headers: Record<string, string> = { origin: BASE, "x-forwarded-for": o.ip ?? nextIp() };
+  const headers: Record<string, string> = { origin: BASE };
   if (o.body !== undefined) headers["content-type"] = "application/json";
   if (o.jar?.size) headers.cookie = [...o.jar].map(([k, v]) => `${k}=${v}`).join("; ");
+  const info = ipOf(headers, o.ip ?? nextIp());
   const res = await auth.handler(
     new Request(`${BASE}/api/auth${path}`, {
       method: o.method ?? (o.body === undefined ? "GET" : "POST"),
@@ -66,6 +85,7 @@ export async function call(
       body: o.body === undefined ? undefined : JSON.stringify(o.body),
       redirect: "manual",
     }),
+    info,
   );
   for (const c of res.headers.getSetCookie()) {
     const pair = c.split(";")[0];

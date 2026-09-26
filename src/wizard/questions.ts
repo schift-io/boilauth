@@ -84,6 +84,24 @@ export const QUESTIONS: Question[] = [
       { value: "postgres", label: "Postgres", hint: "pg Pool, DATABASE_URL" },
     ],
   },
+  {
+    key: "network.clientIp", group: "A. Runtime", type: "select",
+    message: "How requests reach the app (decides which client IP the rate limits and lockout count)",
+    options: [
+      { value: "socket", label: "Directly", hint: "the connection's address; mount with boilauth/node" },
+      { value: "proxy", label: "Through proxies you run", hint: "nginx, a load balancer: X-Forwarded-For from listed addresses" },
+      { value: "header", label: "Through a platform that sets one header", hint: "cf-connecting-ip, fly-client-ip, x-real-ip ..." },
+    ],
+  },
+  {
+    key: "network.trustedProxies", group: "A. Runtime", type: "text", when: (a) => a.network.clientIp === "proxy",
+    message: "Proxy addresses or CIDRs, comma separated (e.g. 10.0.0.0/8)",
+    parse: (raw) => raw.split(",").map((s) => s.trim()).filter(Boolean),
+  },
+  {
+    key: "network.clientIpHeader", group: "A. Runtime", type: "text", when: (a) => a.network.clientIp === "header",
+    message: "Header your platform overwrites with the client IP",
+  },
   // B. Sign-in methods
   { key: "signIn.emailPassword", group: "B. Sign-in", type: "confirm", message: "Email + password sign-in?" },
   {

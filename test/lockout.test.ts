@@ -62,9 +62,10 @@ test("sign-up is rate limited too (Better Auth built-in 3 per 10 s)", async () =
     const res = await auth.handler(
       new Request(`${BASE}/api/auth/sign-up/email`, {
         method: "POST",
-        headers: { "content-type": "application/json", origin: BASE, "x-forwarded-for": "10.7.7.7" },
+        headers: { "content-type": "application/json", origin: BASE },
         body: JSON.stringify({ email: `s${i}@example.com`, password: "long-enough-pw", name: "S" }),
       }),
+      { clientIp: "10.7.7.7" },
     );
     statuses.push(res.status);
   }

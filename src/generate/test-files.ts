@@ -121,6 +121,13 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
           : "") +
         dbFactory,
       DEPS_EXTRA: extra.map((l) => l + "\n").join(""),
+      IP_MODE: JSON.stringify(
+        a.network.clientIp === "header"
+          ? { mode: "header", header: a.network.clientIpHeader }
+          : a.network.clientIp === "proxy"
+            ? { mode: "proxy", proxy: a.network.trustedProxies[0].split("/")[0] }
+            : { mode: "socket" },
+      ),
       SIGN_IN_HELPERS: signInHelpers,
     }).replace("    ...over,\n    betterAuth: { logger: { disabled: true }, ...over.betterAuth },", fixBetterAuth(googleForTests)) +
     hibpStub +
@@ -148,6 +155,7 @@ export function testFile(a: Answers): string {
         RATE: a.rateLimit.signInPerMinute,
       }),
     );
+    blocks.push(clientIpBlock(a));
     if (a.lockout.maxFailures > 0) blocks.push(tpl("lockout", { MAX_FAILURES: a.lockout.maxFailures, LOCK_MIN: a.lockout.minutes }));
     if (a.password.breachedCheck === "hibp") blocks.push(tpl("hibp"));
     for (const s of a.migration.sources) blocks.push(tpl(`migration-${s}`));
@@ -180,12 +188,11 @@ export function testFile(a: Answers): string {
   blocks.push(tpl("sessions", { DAYS: a.session.days, DEVICES: a.session.devices, FIRST_ALIVE: a.session.devices === "multi" }));
   if (a.session.bearer) {
     const signIn = pw
-      ? `  const res = await auth.handler(
-    new Request(\`\${h.BASE}/api/auth/sign-in/email\`, {
-      method: "POST",
-      headers: { origin: h.BASE, "content-type": "application/json", "x-forwarded-for": h.nextIp() },
-      body: JSON.stringify({ email, password: h.PW }),
-    }),
+      ? `  const signInHeaders: Record<string, string> = { origin: h.BASE, "content-type": "application/json" };
+  const info = h.ipOf(signInHeaders, h.nextIp());
+  const res = await auth.handler(
+    new Request(\`\${h.BASE}/api/auth/sign-in/email\`, { method: "POST", headers: signInHeaders, body: JSON.stringify({ email, password: h.PW }) }),
+    info,
   );
   assert.equal(res.status, 200);
   const token = res.headers.get("set-auth-token");
@@ -352,4 +359,20 @@ function adminDenied(a: Answers): { ADMIN_DENIED: number; ADMIN_ANON: string } {
 
 function ident(role: string): string {
   return "role_" + role.replace(/[^a-z0-9_]/g, "_");
+}
+
+/** Rotating X-Forwarded-For must not buy fresh sign-in attempts, whatever network.clientIp says. */
+function clientIpBlock(a: Answers): string {
+  const n = a.network;
+  const request =
+    n.clientIp === "socket"
+      ? { HEADERS: '{ "x-forwarded-for": `198.51.100.${i + 1}` }', INFO: '{ clientIp: "203.0.113.9" }', MODE: "the socket address" }
+      : n.clientIp === "proxy"
+        ? {
+            HEADERS: '{ "x-forwarded-for": `1.2.3.${i + 1}, 203.0.113.9` }',
+            INFO: `{ clientIp: ${JSON.stringify(n.trustedProxies[0].split("/")[0])} }`,
+            MODE: "the right-most hop that is not a trusted proxy",
+          }
+        : { HEADERS: `{ ${JSON.stringify(n.clientIpHeader)}: "203.0.113.9", "x-forwarded-for": \`198.51.100.\${i + 1}\` }`, INFO: "undefined", MODE: `the ${n.clientIpHeader} header` };
+  return tpl("client-ip", { ...request, RATE: a.rateLimit.signInPerMinute });
 }

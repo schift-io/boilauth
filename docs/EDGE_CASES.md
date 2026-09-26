@@ -36,8 +36,16 @@ which are still asked:
 | Case | Policy key | Choices | Module | Spec |
 |---|---|---|---|---|
 | Where users live | `runtime.database` | **`sqlite`** (node:sqlite) / `postgres` (pg Pool) | config | X1 |
+| Which client IP per-IP controls count | `network.clientIp` | **`socket`** (the connection's address; mount with `boilauth/node` or pass `auth.handler(req, { clientIp })`) / `proxy` (X-Forwarded-For walked from the right past your proxies) / `header` (one header your platform overwrites) | `boilauth/client-ip` | N1 |
+| Your proxies | `network.trustedProxies` | comma list of IPs/CIDRs, **none** (asked with proxy) | `boilauth/client-ip` | N1 |
+| Platform client-IP header | `network.clientIpHeader` | header name, **`cf-connecting-ip`** (asked with header) | `boilauth/client-ip` | N1 |
 
 Adapter is Better Auth's built-in Kysely adapter for both (not asked). Language is TypeScript (not asked).
+
+Forwarded headers are never trusted from an arbitrary client: before 0.3.0 a rotating `X-Forwarded-For`
+bypassed every per-IP limit, and behind an appending proxy all clients shared one bucket (audit F1/F3).
+IPv6 clients are counted per /64. In production a request with no resolvable IP is refused with 500
+`CLIENT_IP_UNAVAILABLE` rather than pooled with everyone else.
 
 ## B. Sign-in methods
 

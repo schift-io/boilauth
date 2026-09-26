@@ -16,6 +16,7 @@ import { normalizeUsername, usernamePluginOptions, type UsernameRules } from "./
 import { phonePlugin, type PhoneOptions } from "./modules/phone.js";
 import { SEND_LIMIT_PLUGIN_ID, withRateLimitHeaders } from "./modules/rate-limit.js";
 import { hideAdminRoutes } from "./modules/admin-hide.js";
+import { CLIENT_IP_HEADER, withClientIp, type ClientIpConfig } from "./modules/client-ip.js";
 
 export const PRESETS = {
   minPasswordLength: 10,
@@ -88,7 +89,13 @@ export interface BoilAuthOptions {
   bearer?: boolean;
   /** Extra plugins, in order, after boilauth's own. */
   plugins?: BetterAuthPlugin[];
-  /** Proxy CIDRs whose X-Forwarded-For you trust, so rate limits key on the real client IP. */
+  /**
+   * Where the client IP comes from (rate limits, lockout, send limits). Default socket: the
+   * address the server adapter passes as auth.handler(request, { clientIp }); forwarded headers
+   * are ignored. See boilauth/client-ip.
+   */
+  clientIp?: ClientIpConfig;
+  /** Shorthand for clientIp: { mode: "proxy", trustedProxies }. */
   trustedProxies?: string[];
   /** Test hook: fixed clock for lockout. */
   now?: () => Date;
@@ -168,8 +175,10 @@ export function boilAuthOptions(o: BoilAuthOptions) {
     advanced: {
       useSecureCookies: o.baseURL.startsWith("https://"),
       ...extra.advanced,
+      // boilauth resolves the client IP (withClientIp) and hands it over in one private header.
       ipAddress: {
-        ...(o.trustedProxies ? { trustedProxies: o.trustedProxies } : {}),
+        ipAddressHeaders: [CLIENT_IP_HEADER],
+        ipv6Subnet: 64,
         ...extra.advanced?.ipAddress,
       },
     },
@@ -194,11 +203,16 @@ export function boilAuthOptions(o: BoilAuthOptions) {
   return { options, hasher };
 }
 
+export function clientIpConfig(o: BoilAuthOptions): ClientIpConfig {
+  return o.clientIp ?? (o.trustedProxies ? { mode: "proxy", trustedProxies: o.trustedProxies } : { mode: "socket" });
+}
+
 export function createBoilAuth(o: BoilAuthOptions) {
   const { options, hasher } = boilAuthOptions(o);
   const auth = betterAuth(options);
-  // Better Auth's own 429 carries only X-Retry-After; add the standard header.
-  return Object.assign(auth, { handler: withRateLimitHeaders(auth.handler), boilauth: { hasher, options, input: o } });
+  // Resolve the client IP first; Better Auth's own 429 carries only X-Retry-After, add the standard header.
+  const handler = withRateLimitHeaders(withClientIp(auth.handler, clientIpConfig(o)));
+  return Object.assign(auth, { handler, boilauth: { hasher, options, input: o } });
 }
 
 export type BoilAuth = ReturnType<typeof createBoilAuth>;

@@ -48,6 +48,14 @@
     "./rate-limit": {
       "types": "./dist/modules/rate-limit.d.ts",
       "default": "./dist/modules/rate-limit.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "default": "./dist/node.js"
+    },
+    "./client-ip": {
+      "types": "./dist/modules/client-ip.d.ts",
+      "default": "./dist/modules/client-ip.js"
     }
   },
   "files": [
@@ -71,7 +79,8 @@
     "bcryptjs": "^3.0.3",
     "better-auth": "^1.7.6",
     "yaml": "^2.9.1",
-    "zod": "^4.6.5"
+    "zod": "^4.6.5",
+    "better-call": "1.4.0"
   },
   "devDependencies": {
     "@types/node": "^22.20.4",

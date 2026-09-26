@@ -1,0 +1,14 @@
+test("client IP: rotating X-Forwarded-For does not buy more sign-in attempts (counted by {{MODE}})", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  let limited = 0;
+  for (let i = 0; i < {{RATE}} + 3; i++) {
+    const headers: Record<string, string> = { "content-type": "application/json", origin: h.BASE, ...{{HEADERS}} };
+    const res = await auth.handler(
+      new Request(`${h.BASE}/api/auth/sign-in/email`, { method: "POST", headers, body: JSON.stringify({ email: "nobody@example.com", password: "wrong-password-1" }) }),
+      {{INFO}},
+    );
+    await res.text();
+    if (res.status === 429) limited++;
+  }
+  assert.ok(limited >= 3, `expected 429 after {{RATE}} attempts, got ${limited}x429`);
+});
