@@ -1,0 +1,11 @@
+/** Signs in through the (test-mocked) Google callback. */
+export async function signIn(auth: Auth, email: string): Promise<Jar> {
+  const { res, jar } = await googleSignIn(auth, email, true);
+  if (res.status !== 302 || !jar.size) throw new Error(`google sign-in ${res.status} ${res.location}`);
+  return jar;
+}
+
+export async function newUser(auth: Auth, tag = "u"): Promise<{ email: string; jar: Jar }> {
+  const email = newEmail(tag);
+  return { email, jar: await signIn(auth, email) };
+}

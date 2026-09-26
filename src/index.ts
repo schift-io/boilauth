@@ -4,7 +4,7 @@
  * Public surface. Import from "boilauth" only; internal module paths are not
  * part of the contract and may move between minor versions.
  */
-export { createBoilAuth, boilAuthOptions, PRESETS, type BoilAuth, type BoilAuthOptions } from "./auth.js";
+export { createBoilAuth, boilAuthOptions, PRESETS, type BoilAuth, type BoilAuthOptions, type EmailMessage } from "./auth.js";
 export {
   createPasswordHasher,
   hashKind,
@@ -20,6 +20,13 @@ export { parseSupabaseExport, parseFirebaseExport, parseAuth0Export } from "./im
 export { grantRole } from "./roles.js";
 export {
   SCHEMA_VERSION,
+  MODULE_VERSIONS,
+  enabledModules,
+  installedModules,
+  schemaDelta,
+  mergeShapes,
+  type SchemaModule,
+  type TableShape,
   describeSchema,
   nonExportableFields,
   migrate,

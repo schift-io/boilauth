@@ -2,10 +2,13 @@
  * createBoilAuth — Better Auth with boilauth's safe presets.
  *
  * Better Auth is the engine (sessions, cookies, CSRF/origin checks, adapters).
- * We only choose defaults and add the lockout/rehash plugin. Every option can
- * be overridden via `betterAuth` (deep-merged last), so nothing here is a lock-in.
+ * We choose defaults and add the lockout/rehash plugin. Every option can be
+ * overridden via `betterAuth` (merged last), so nothing here is a lock-in.
+ *
+ * The wizard (`boilauth init`) generates a call to this with the answers as
+ * literal values; see docs/EDGE_CASES.md for which key drives which option.
  */
-import { betterAuth, type BetterAuthOptions } from "better-auth";
+import { betterAuth, type BetterAuthOptions, type BetterAuthPlugin, type User } from "better-auth";
 import { admin } from "better-auth/plugins";
 import { createPasswordHasher, type Argon2Params, type FirebaseProjectKey } from "./hash/index.js";
 import { boilauthPlugin, type LockoutOptions } from "./plugin.js";
@@ -22,8 +25,8 @@ export const PRESETS = {
   rateLimit: {
     window: 60,
     max: 100,
-    // Better Auth's built-in stricter rule for /sign-in*, /sign-up*,
-    // /change-password*, /change-email* (3 per 10 s per IP) stays active.
+    // Better Auth's built-in stricter rule for /sign-up*, /change-password*,
+    // /change-email* (3 per 10 s per IP) stays active.
     customRules: {
       "/sign-in/email": { window: 60, max: 10 },
       "/request-password-reset": { window: 300, max: 3 },
@@ -31,17 +34,38 @@ export const PRESETS = {
   },
 } as const;
 
+export interface EmailMessage {
+  to: string;
+  subject: string;
+  text: string;
+}
+
 export interface BoilAuthOptions {
   /** A Better Auth database: node:sqlite DatabaseSync, better-sqlite3, pg Pool, mysql2, or a Kysely dialect. */
   database: BetterAuthOptions["database"];
   secret: string;
   baseURL: string;
+  /** Email + password sign-in. Default true. */
+  emailPassword?: boolean;
   /** Signer keys for Firebase projects you imported users from. */
   firebaseKeys?: FirebaseProjectKey[];
   argon2?: Partial<Argon2Params>;
+  minPasswordLength?: number;
+  /** maxFailures 0 turns lockout off. */
   lockout?: Partial<LockoutOptions>;
-  /** Require a verified email before password sign-in (default true when sendVerificationEmail is set). */
+  rateLimitSignInPerMinute?: number;
+  sessionDays?: number;
+  /** Require a verified email before password sign-in (default true when an email sender is set). */
   requireEmailVerification?: boolean;
+  /** Sends verification and password-reset mail. Without it neither mail goes out. */
+  sendEmail?: (msg: EmailMessage) => Promise<void>;
+  /** OAuth identity with an existing email: link when both sides are verified, or never. */
+  accountLinking?: "verified_only" | "never";
+  socialProviders?: BetterAuthOptions["socialProviders"];
+  /** Better Auth's admin plugin (role column). Default true; set false for no roles, or pass your own admin() in plugins. */
+  admin?: boolean;
+  /** Extra plugins, in order, after boilauth's own. */
+  plugins?: BetterAuthPlugin[];
   /** Proxy CIDRs whose X-Forwarded-For you trust, so rate limits key on the real client IP. */
   trustedProxies?: string[];
   /** Test hook: fixed clock for lockout. */
@@ -53,26 +77,51 @@ export interface BoilAuthOptions {
 export function boilAuthOptions(o: BoilAuthOptions) {
   const hasher = createPasswordHasher({ argon2: o.argon2, firebaseKeys: o.firebaseKeys });
   const extra = o.betterAuth ?? {};
-  const sendVerification = extra.emailVerification?.sendVerificationEmail;
+  const send = o.sendEmail;
+  const sendVerification =
+    extra.emailVerification?.sendVerificationEmail ??
+    (send
+      ? async ({ user, url }: { user: User; url: string }) =>
+          send({ to: user.email, subject: "Verify your email", text: url })
+      : undefined);
+  const sendReset =
+    extra.emailAndPassword?.sendResetPassword ??
+    (send
+      ? async ({ user, url }: { user: User; url: string }) =>
+          send({ to: user.email, subject: "Reset your password", text: url })
+      : undefined);
+  const userPlugins = o.plugins ?? [];
+  const wantsAdmin = (o.admin ?? true) && !userPlugins.some((p) => p.id === "admin");
+  const signInPerMinute = o.rateLimitSignInPerMinute ?? PRESETS.rateLimit.customRules["/sign-in/email"].max;
   const options = {
     database: o.database,
     secret: o.secret,
     baseURL: o.baseURL,
     ...extra,
+    socialProviders: { ...extra.socialProviders, ...o.socialProviders },
     emailAndPassword: {
-      enabled: true,
-      minPasswordLength: PRESETS.minPasswordLength,
+      enabled: o.emailPassword ?? true,
+      minPasswordLength: o.minPasswordLength ?? PRESETS.minPasswordLength,
       maxPasswordLength: PRESETS.maxPasswordLength,
       requireEmailVerification: o.requireEmailVerification ?? Boolean(sendVerification),
       revokeSessionsOnPasswordReset: true,
+      ...(sendReset ? { sendResetPassword: sendReset } : {}),
       ...extra.emailAndPassword,
       password: { hash: hasher.hash, verify: hasher.verify },
     },
-    session: { ...PRESETS.session, ...extra.session },
+    emailVerification: {
+      ...(sendVerification ? { sendVerificationEmail: sendVerification, sendOnSignUp: true } : {}),
+      ...extra.emailVerification,
+    },
+    session: {
+      ...PRESETS.session,
+      ...(o.sessionDays ? { expiresIn: o.sessionDays * 86400 } : {}),
+      ...extra.session,
+    },
     account: {
       ...extra.account,
       accountLinking: {
-        enabled: true,
+        enabled: o.accountLinking !== "never",
         requireLocalEmailVerified: true,
         ...extra.account?.accountLinking,
       },
@@ -82,7 +131,10 @@ export function boilAuthOptions(o: BoilAuthOptions) {
       storage: "database" as const,
       window: PRESETS.rateLimit.window,
       max: PRESETS.rateLimit.max,
-      customRules: { ...PRESETS.rateLimit.customRules },
+      customRules: {
+        ...PRESETS.rateLimit.customRules,
+        "/sign-in/email": { window: 60, max: signInPerMinute },
+      },
       ...extra.rateLimit,
     },
     advanced: {
@@ -94,12 +146,13 @@ export function boilAuthOptions(o: BoilAuthOptions) {
       },
     },
     plugins: [
-      admin(),
       boilauthPlugin({
         hasher,
         lockout: { ...PRESETS.lockout, ...o.lockout },
         now: o.now,
       }),
+      ...(wantsAdmin ? [admin()] : []),
+      ...userPlugins,
       ...(extra.plugins ?? []),
     ],
   } satisfies BetterAuthOptions;

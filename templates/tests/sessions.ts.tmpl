@@ -1,0 +1,9 @@
+test("sessions: {{DAYS}}-day lifetime, devices = {{DEVICES}}", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const { email, jar: first } = await h.newUser(auth, "sess");
+  const second = await h.signIn(auth, email);
+  const s = await h.currentSession(auth, second);
+  const days = (new Date(s.session.expiresAt).getTime() - Date.now()) / 86_400_000;
+  assert.ok(Math.abs(days - {{DAYS}}) < 0.01, `session lasts ${days} days`);
+  assert.equal(Boolean(await h.currentSession(auth, first)), {{FIRST_ALIVE}}, "earlier session after a new sign-in");
+});

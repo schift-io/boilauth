@@ -1,0 +1,82 @@
+{
+  "module": "organization",
+  "version": 1,
+  "tables": {
+    "invitation": {
+      "createdAt": {
+        "type": "date",
+        "required": true
+      },
+      "email": {
+        "type": "string",
+        "required": true
+      },
+      "expiresAt": {
+        "type": "date",
+        "required": true
+      },
+      "inviterId": {
+        "type": "string",
+        "required": true
+      },
+      "organizationId": {
+        "type": "string",
+        "required": true
+      },
+      "role": {
+        "type": "string",
+        "required": false
+      },
+      "status": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "member": {
+      "createdAt": {
+        "type": "date",
+        "required": true
+      },
+      "organizationId": {
+        "type": "string",
+        "required": true
+      },
+      "role": {
+        "type": "string",
+        "required": true
+      },
+      "userId": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "organization": {
+      "createdAt": {
+        "type": "date",
+        "required": true
+      },
+      "logo": {
+        "type": "string",
+        "required": false
+      },
+      "metadata": {
+        "type": "string",
+        "required": false
+      },
+      "name": {
+        "type": "string",
+        "required": true
+      },
+      "slug": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "session": {
+      "activeOrganizationId": {
+        "type": "string",
+        "required": false
+      }
+    }
+  }
+}

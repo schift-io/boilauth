@@ -1,6 +1,6 @@
 {
   "name": "boilauth",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Migration-friendly auth kit on Better Auth: safe presets, import Supabase/Firebase/Auth0 users with their password hashes, versioned schema, SQLite export.",
   "license": "MIT",
   "type": "module",
@@ -16,12 +16,25 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./sessions": {
+      "types": "./dist/modules/sessions.d.ts",
+      "default": "./dist/modules/sessions.js"
+    },
+    "./mfa": {
+      "types": "./dist/modules/mfa.d.ts",
+      "default": "./dist/modules/mfa.js"
+    },
+    "./deletion": {
+      "types": "./dist/modules/deletion.d.ts",
+      "default": "./dist/modules/deletion.js"
     }
   },
   "files": [
     "dist",
     "bin",
     "schema",
+    "templates",
     "README.md",
     "LICENSE",
     "SECURITY.md"
@@ -33,9 +46,11 @@
   },
   "private": true,
   "dependencies": {
+    "@clack/prompts": "^1.8.1",
     "@node-rs/argon2": "^2.2.1",
     "bcryptjs": "^3.0.3",
-    "better-auth": "^1.7.6"
+    "better-auth": "^1.7.6",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/node": "^22.20.4",

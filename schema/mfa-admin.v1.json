@@ -1,0 +1,12 @@
+{
+  "module": "mfa-admin",
+  "version": 1,
+  "tables": {
+    "session": {
+      "mfaVerifiedAt": {
+        "type": "date",
+        "required": false
+      }
+    }
+  }
+}

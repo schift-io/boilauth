@@ -1,0 +1,12 @@
+{
+  "module": "soft-delete",
+  "version": 1,
+  "tables": {
+    "user": {
+      "deletedAt": {
+        "type": "date",
+        "required": false
+      }
+    }
+  }
+}

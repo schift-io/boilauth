@@ -1,0 +1,13 @@
+test("magic link: mail, click, session; the link works once", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const email = h.newEmail("ml");
+  const r = await h.call(auth, "/sign-in/magic-link", { body: { email, callbackURL: "/" } });
+  assert.equal(r.status, 200);
+  const link = h.lastMail(email, "/magic-link/verify");
+  const jar: h.Jar = new Map();
+  assert.equal((await h.call(auth, link, { jar })).status, 302);
+  assert.equal((await h.currentSession(auth, jar))?.user.email, email);
+  const again: h.Jar = new Map();
+  await h.call(auth, link, { jar: again });
+  assert.equal(await h.currentSession(auth, again), null, "second click gives no session");
+});

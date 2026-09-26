@@ -1,0 +1,8 @@
+test("roles = user + admin: users are refused, a granted admin is let in", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const { email, jar } = await h.newUser(auth, "ra");
+  assert.equal((await h.call(auth, "/admin/list-users", { jar })).status, 403);
+  const g = await boil.grantRole(auth, email, "admin");
+  assert.equal(g.before, "user");
+  assert.equal(await h.currentSession(auth, jar), null, "role change ends existing sessions");
+{{ADMIN_ALLOWED}}});

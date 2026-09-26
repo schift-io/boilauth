@@ -1,0 +1,30 @@
+{
+  "module": "admin",
+  "version": 1,
+  "tables": {
+    "session": {
+      "impersonatedBy": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "user": {
+      "banExpires": {
+        "type": "date",
+        "required": false
+      },
+      "banReason": {
+        "type": "string",
+        "required": false
+      },
+      "banned": {
+        "type": "boolean",
+        "required": false
+      },
+      "role": {
+        "type": "string",
+        "required": false
+      }
+    }
+  }
+}

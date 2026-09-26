@@ -1,0 +1,13 @@
+/** Signs in (and signs up) through the magic link. */
+export async function signIn(auth: Auth, email: string): Promise<Jar> {
+  const jar: Jar = new Map();
+  const r = await call(auth, "/sign-in/magic-link", { body: { email, callbackURL: "/" } });
+  if (r.status !== 200) throw new Error(`magic link ${r.status} ${JSON.stringify(r.json)}`);
+  await call(auth, lastMail(email, "/magic-link/verify"), { jar });
+  return jar;
+}
+
+export async function newUser(auth: Auth, tag = "u"): Promise<{ email: string; jar: Jar }> {
+  const email = newEmail(tag);
+  return { email, jar: await signIn(auth, email) };
+}

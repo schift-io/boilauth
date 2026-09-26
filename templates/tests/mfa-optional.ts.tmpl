@@ -1,0 +1,29 @@
+async function enrollTotp(auth: h.Auth, jar: h.Jar): Promise<string> {
+  const en = await h.call(auth, "/two-factor/enable", { body: { password: h.PW }, jar });
+  assert.equal(en.status, 200, JSON.stringify(en.json));
+  const uri = en.json.totpURI as string;
+  const ok = await h.call(auth, "/two-factor/verify-totp", { body: { code: h.totp(uri) }, jar });
+  assert.equal(ok.status, 200, JSON.stringify(ok.json));
+  return uri;
+}
+
+async function passwordThenTotp(auth: h.Auth, email: string, uri: string): Promise<h.Jar> {
+  const jar: h.Jar = new Map();
+  const first = await h.call(auth, "/sign-in/email", { body: { email, password: h.PW }, jar });
+  assert.equal(first.status, 200);
+  assert.equal(first.json.twoFactorRedirect, true, "password alone gives no session");
+  assert.equal(await h.currentSession(auth, jar), null);
+  const bad = await h.call(auth, "/two-factor/verify-totp", { body: { code: "000000" }, jar });
+  assert.equal(bad.status, 401);
+  const good = await h.call(auth, "/two-factor/verify-totp", { body: { code: h.totp(uri, Date.now() + 30_000) }, jar });
+  assert.equal(good.status, 200, JSON.stringify(good.json));
+  return jar;
+}
+
+test("TOTP: enroll, then sign-in needs password + code", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const { email, jar } = await h.newUser(auth, "mfa");
+  const uri = await enrollTotp(auth, jar);
+  const after = await passwordThenTotp(auth, email, uri);
+  assert.equal((await h.currentSession(auth, after))?.user.email, email);
+});

@@ -1,0 +1,8 @@
+test("deletion = hard: the user deletes the account and the rows are gone", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const { email, jar } = await h.newUser(auth, "del");
+  const r = await h.call(auth, "/delete-user", { body: {{DELETE_BODY}}, jar });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  const ctx = await auth.$context;
+  assert.equal(await ctx.internalAdapter.findUserByEmail(email), null);
+});

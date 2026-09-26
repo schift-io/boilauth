@@ -4,11 +4,11 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { main } from "../src/cli.js";
+import { VERSION, main } from "../src/cli.js";
 import { signIn } from "./helpers.js";
 
 const SRC = fileURLToPath(new URL("../src/index.ts", import.meta.url));
-const FIX = fileURLToPath(new URL("./fixtures/", import.meta.url));
+const FIX = fileURLToPath(new URL("../fixtures/", import.meta.url));
 
 function config(dir: string, name: string, db: string) {
   const p = join(dir, name);
@@ -35,8 +35,10 @@ test("CLI: init, migrate, import ×3, grant-role, export-sqlite, import-sqlite i
   const cwd = process.cwd();
   try {
     process.chdir(dir);
-    assert.equal(await main(["init"], log), 0);
-    assert.ok(existsSync(join(dir, "boilauth.config.mjs")) && existsSync(join(dir, ".env.example")));
+    assert.equal(await main(["init", "--yes"], log), 0);
+    for (const f of ["boilauth.answers.json", "boilauth.config.ts", "src/auth.ts", "src/email.ts", ".env.example", "test/boilauth.test.ts"]) {
+      assert.ok(existsSync(join(dir, f)), f);
+    }
 
     const cfgA = config(dir, "a.config.mjs", "a.db");
     assert.equal(await main(["migrate", "--config", cfgA], log), 0);
@@ -77,8 +79,8 @@ test("CLI: check-updates only with an explicit feed; flags affected versions", a
       feed,
       JSON.stringify({
         advisories: [
-          { id: "TEST-1", affected: "<0.1.1", fixed: "0.1.1", severity: "high", summary: "test advisory" },
-          { id: "TEST-2", affected: "<0.0.9", severity: "low", summary: "old" },
+          { id: "TEST-1", affected: `<=${VERSION}`, severity: "high", summary: "test advisory" },
+          { id: "TEST-2", affected: "<0.0.1", severity: "low", summary: "old" },
         ],
       }),
     );

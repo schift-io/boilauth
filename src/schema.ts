@@ -1,31 +1,48 @@
 /**
  * Schema version contract + SQLite export/import.
  *
- * SCHEMA_VERSION names the set of tables/columns a boilauth install has.
- * Schift services that attach to a customer's auth DB key off this number,
- * so it only changes with a documented migration. `describeSchema()` is the
- * live shape; test/schema-contract.test.ts pins it to schema/v<N>.json.
+ * The schema is versioned per module. `core` is always present; every module
+ * the wizard can switch on that adds tables or columns has its own version
+ * and its own pinned delta file, schema/<module>.v<N>.json. `migrate()` writes
+ * the enabled modules and versions into the `boilauthModule` table, so a
+ * service attaching to a customer database reads the shape instead of
+ * guessing. test/schema.test.ts pins every module file to the live shape.
  *
  * Only Better Auth field types that map 1:1 to SQLite storage classes are
  * allowed (string, number, boolean, date). `copyAuthData` moves every row
- * between two boilauth instances (e.g. Postgres → SQLite file and back).
+ * between two boilauth instances (e.g. Postgres -> SQLite file and back).
  */
 import { getAuthTables } from "better-auth/db";
 import { getMigrations } from "better-auth/db/migration";
 import type { BetterAuthOptions } from "better-auth";
 
+/** Version of the core module. Kept for 0.1 callers. */
 export const SCHEMA_VERSION = 1;
+
+/** Module -> contract version. Bump a module's number when its delta file changes. */
+export const MODULE_VERSIONS = {
+  core: 1,
+  admin: 1,
+  "two-factor": 1,
+  "mfa-admin": 1,
+  organization: 1,
+  "soft-delete": 1,
+} as const;
+
+export type SchemaModule = keyof typeof MODULE_VERSIONS;
 
 export const SQLITE_EXPORTABLE_TYPES = ["string", "number", "boolean", "date"] as const;
 
+export type TableShape = Record<string, Record<string, { type: string; required: boolean }>>;
+
 export interface SchemaDescription {
   version: number;
-  tables: Record<string, Record<string, { type: string; required: boolean }>>;
+  tables: TableShape;
 }
 
 export function describeSchema(options: BetterAuthOptions): SchemaDescription {
   const tables = getAuthTables(options);
-  const out: SchemaDescription["tables"] = {};
+  const out: TableShape = {};
   for (const key of Object.keys(tables).sort()) {
     const fields: Record<string, { type: string; required: boolean }> = {};
     for (const name of Object.keys(tables[key].fields).sort()) {
@@ -35,6 +52,41 @@ export function describeSchema(options: BetterAuthOptions): SchemaDescription {
     out[key] = fields;
   }
   return { version: SCHEMA_VERSION, tables: out };
+}
+
+/** Modules whose tables these options create, by plugin id. */
+export function enabledModules(options: BetterAuthOptions): SchemaModule[] {
+  const plugins = (options.plugins ?? []) as { id: string; schema?: unknown }[];
+  const has = (id: string) => plugins.some((p) => p.id === id);
+  const out: SchemaModule[] = ["core"];
+  if (has("admin")) out.push("admin");
+  if (has("two-factor")) out.push("two-factor");
+  if (has("boilauth-mfa-admin")) out.push("mfa-admin");
+  if (has("organization")) out.push("organization");
+  if (plugins.some((p) => p.id === "boilauth-deletion" && p.schema)) out.push("soft-delete");
+  return out;
+}
+
+/** Tables/columns present in `withModule` but not in `base`. */
+export function schemaDelta(base: TableShape, withModule: TableShape): TableShape {
+  const out: TableShape = {};
+  for (const [t, fields] of Object.entries(withModule)) {
+    for (const [n, f] of Object.entries(fields)) {
+      if (base[t]?.[n]) continue;
+      (out[t] ??= {})[n] = f;
+    }
+  }
+  return out;
+}
+
+export function mergeShapes(...shapes: TableShape[]): TableShape {
+  const out: TableShape = {};
+  for (const s of shapes) for (const [t, fields] of Object.entries(s)) out[t] = { ...out[t], ...fields };
+  const sorted: TableShape = {};
+  for (const t of Object.keys(out).sort()) {
+    sorted[t] = Object.fromEntries(Object.keys(out[t]).sort().map((k) => [k, out[t][k]]));
+  }
+  return sorted;
 }
 
 export function nonExportableFields(desc: SchemaDescription): string[] {
@@ -47,11 +99,35 @@ export function nonExportableFields(desc: SchemaDescription): string[] {
   return bad;
 }
 
-/** Create/upgrade tables for these options. Returns the tables it created. */
-export async function migrate(options: BetterAuthOptions): Promise<string[]> {
+type MigrateTarget = BetterAuthOptions | { $context: Promise<{ adapter: any; options: BetterAuthOptions }> };
+
+/**
+ * Create/upgrade tables. Pass the auth instance (not just options) to also
+ * record the enabled modules and their versions in `boilauthModule`.
+ * Returns the tables it created.
+ */
+export async function migrate(target: MigrateTarget): Promise<string[]> {
+  const ctx = "$context" in target ? await target.$context : null;
+  const options = ctx ? ctx.options : (target as BetterAuthOptions);
   const m = await getMigrations(options, { throwOnUnsafe: true });
   await m.runMigrations();
+  if (ctx) {
+    await ctx.adapter.deleteMany({ model: "boilauthModule", where: [] });
+    for (const name of enabledModules(options)) {
+      await ctx.adapter.create({
+        model: "boilauthModule",
+        data: { name, version: MODULE_VERSIONS[name], installedAt: new Date() },
+      });
+    }
+  }
   return m.toBeCreated.map((t) => t.table);
+}
+
+/** Modules and versions recorded in a database by migrate(). */
+export async function installedModules(auth: { $context: Promise<{ adapter: any }> }) {
+  const ctx = await auth.$context;
+  const rows: { name: string; version: number }[] = await ctx.adapter.findMany({ model: "boilauthModule" });
+  return Object.fromEntries(rows.map((r) => [r.name, r.version])) as Partial<Record<SchemaModule, number>>;
 }
 
 type AuthLike = { $context: Promise<{ adapter: any; options: BetterAuthOptions }> };
@@ -59,7 +135,8 @@ type AuthLike = { $context: Promise<{ adapter: any; options: BetterAuthOptions }
 /** Tables in foreign-key order (user before account/session). rateLimit is transient and skipped. */
 function copyOrder(options: BetterAuthOptions): string[] {
   const tables = getAuthTables(options);
-  const keys = Object.keys(tables).filter((k) => k !== "rateLimit").sort();
+  // rateLimit is transient; boilauthModule is written by migrate() on each side.
+  const keys = Object.keys(tables).filter((k) => k !== "rateLimit" && k !== "boilauthModule").sort();
   // Topological order over field references (referenced model first).
   const byModelName = new Map(keys.map((k) => [tables[k].modelName, k]));
   const deps = new Map(

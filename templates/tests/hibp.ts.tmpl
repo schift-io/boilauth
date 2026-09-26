@@ -1,0 +1,14 @@
+test("breached passwords are refused at sign-up (Have I Been Pwned range API, mocked)", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const breached = "breached-password-123";
+  const hash = h.sha1Hex(breached);
+  const range = (url: string) =>
+    url.startsWith("https://api.pwnedpasswords.com/range/")
+      ? new Response(url.endsWith(hash.slice(0, 5)) ? `${hash.slice(5)}:42\r\n0000000000000000000000000000000000A:1` : "0000000000000000000000000000000000A:1")
+      : null;
+  const bad = await h.withFetch(range, () => h.call(auth, "/sign-up/email", { body: { email: h.newEmail("pwn"), password: breached, name: "P" } }));
+  assert.equal(bad.status, 400);
+  assert.equal(bad.json.code, "PASSWORD_COMPROMISED");
+  const ok = await h.withFetch(range, () => h.call(auth, "/sign-up/email", { body: { email: h.newEmail("pwn"), password: "not-in-the-list-8876", name: "P" } }));
+  assert.equal(ok.status, 200);
+});

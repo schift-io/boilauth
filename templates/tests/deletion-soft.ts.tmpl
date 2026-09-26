@@ -1,0 +1,14 @@
+test("deletion = soft: marked deleted, sessions end, no new session, purge removes the row", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const bystander = await h.newUser(auth, "keep");
+  assert.equal((await h.call(auth, "/delete-user", { body: {{DELETE_BODY}}, jar: bystander.jar })).status, 404, "hard delete endpoint is off");
+  const { email, jar } = await h.newUser(auth, "sdel");
+  const r = await h.call(auth, "/boilauth/delete-account", { body: {{DELETE_BODY}}, jar });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.equal(await h.currentSession(auth, jar), null);
+  await assert.rejects(h.signIn(auth, email), "a deleted account cannot sign in");
+  const ctx = await auth.$context;
+  assert.ok(await ctx.internalAdapter.findUserByEmail(email), "row kept until purge");
+  assert.equal(await purgeDeleted(auth, 0, new Date(Date.now() + 1000)), 1);
+  assert.equal(await ctx.internalAdapter.findUserByEmail(email), null);
+});

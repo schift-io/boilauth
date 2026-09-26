@@ -8,7 +8,7 @@ upgraded to argon2id on that first login.
 - Engine: [Better Auth](https://better-auth.com) (sessions, cookies, origin checks, DB adapters).
   boilauth does not implement its own auth crypto; it composes argon2id
   (`@node-rs/argon2`), bcrypt (`bcryptjs`) and Node's built-in scrypt/AES.
-- Status: **0.1.0, pre-release.** Not published to npm. An external security
+- Status: **0.2.0, pre-release.** Not published to npm. An external security
   review happens before 1.0 — see [Security model](#security-model).
 - License: MIT.
 
@@ -18,15 +18,22 @@ Requires Node 22.5+ (for built-in `node:sqlite`).
 
 ```bash
 npm install boilauth          # after first release; until then: npm install <path-or-git-url>
-npx boilauth init             # writes boilauth.config.mjs and .env.example
+npx boilauth init             # asks the policy questions below, generates code for your answers
+npm install
 cp .env.example .env          # set BOILAUTH_SECRET=$(openssl rand -base64 32)
-npx boilauth migrate          # creates tables (SQLite auth.db by default)
+npm test                      # the generated tests for exactly the options you chose
+npx boilauth migrate          # creates tables and records the schema modules
 ```
 
-Mount the handler in your server. The instance is a normal Better Auth instance:
+`init --yes` takes every default without asking. Answers are saved to
+`boilauth.answers.json`; running `init` again asks only for keys missing from
+that file and regenerates the same code. Change one answer with
+`npx boilauth init --yes --set roles.mode=organizations`.
+
+Mount the generated instance in your server. It is a normal Better Auth instance:
 
 ```ts
-import auth from "./boilauth.config.mjs";
+import auth from "./boilauth.config.js";
 import { toNodeHandler } from "better-auth/node";
 import express from "express";
 
@@ -35,14 +42,58 @@ app.all("/api/auth/*splat", toNodeHandler(auth));   // sign-up, sign-in, session
 app.listen(3000);
 ```
 
-```bash
-curl -X POST localhost:3000/api/auth/sign-up/email -H 'content-type: application/json' \
-  -H 'origin: http://localhost:3000' \
-  -d '{"email":"me@example.com","password":"a-long-password","name":"Me"}'
-```
+## The wizard
 
-Postgres instead of SQLite: pass `new pg.Pool({ connectionString })` as `database`
-in `boilauth.config.mjs`. Everything else is the same.
+Each question is one policy key. The key is the answers-file field and the switch
+that decides which code is generated; the full table with every case, choice and
+module is [`docs/EDGE_CASES.md`](docs/EDGE_CASES.md). Defaults in bold.
+
+| # | Policy key | Choices |
+|---|---|---|
+| A | `runtime.database` | **sqlite** / postgres |
+| B | `signIn.emailPassword` | **yes** / no |
+| B | `signIn.magicLink` | yes / **no** |
+| B | `signIn.oauth` | google, github, apple, kakao, naver (**none**) |
+| C | `migration.sources` | supabase, firebase, auth0 (**none**) |
+| C | `migration.firebase.keyId`, `.saltSeparator`, `.rounds`, `.memCost` | **firebase**, **Bw==**, **8**, **14** (asked only with firebase) |
+| D | `email.verification` | **required** / optional |
+| E | `linking.mode` | **verified_only** / never (asked only with OAuth) |
+| F | `password.minLength` | **10** (8..64) |
+| F | `password.breachedCheck` | **off** / hibp |
+| G | `lockout.maxFailures`, `lockout.minutes` | **5**, **15** (0 = off) |
+| G | `rateLimit.signInPerMinute` | **10** |
+| G | `session.days` | **7** (1..90) |
+| G | `session.revokeOnPasswordChange` | **yes** / no |
+| G | `session.devices` | **multi** / single |
+| I | `roles.mode` | none / **admin** / custom / organizations |
+| I | `roles.custom` | **admin,editor,user** (asked with custom) |
+| I | `roles.orgCreation` | **any_user** / admin_only (asked with organizations) |
+| H | `mfa.mode` | **off** / totp_optional / totp_required_admin (the last needs roles) |
+| J | `deletion.mode` | **hard** / soft |
+| J | `deletion.export` | **yes** / no |
+
+What `init` writes:
+
+| File | Rewritten by init | Contents |
+|---|---|---|
+| `src/auth.ts` | yes | `createAuth()` importing only the modules your answers turned on |
+| `boilauth.config.ts` | yes | the instance: database, secret, OAuth credentials from env |
+| `test/boilauth.test.ts`, `test/helpers.ts` | yes | one test block per answered policy (lockout, rate limit, TOTP, org invitations, soft delete …) |
+| `.env.example` | yes | only the variables your answers need |
+| `src/email.ts` | once | your mail sender (logs in development) |
+| `src/permissions.ts` | once | custom roles and their permissions (roles = custom) |
+| `package.json`, `tsconfig.json` | once | |
+
+Generated tests run offline: Have I Been Pwned and the Google token endpoint are
+mocked, TOTP codes are computed in the test. With Postgres they need
+`TEST_DATABASE_URL` pointing at an empty scratch database (each run makes and
+drops its own schema) and are reported as skipped without it.
+
+Not offered yet: passkeys (separate `@better-auth/passkey` package; no WebAuthn
+authenticator emulator in the tests yet), Drizzle and Prisma adapters (their own
+schema generation step is not covered), Python. OAuth callbacks are exercised for
+Google with a mocked token endpoint; the other providers are checked up to the
+authorize redirect.
 
 ## What the presets are
 
@@ -139,18 +190,28 @@ Uses Better Auth's admin-plugin `role` column, so the admin endpoints see it.
 
 ## Schema version contract
 
-`SCHEMA_VERSION = 1`. The exact tables and columns are in
-[`schema/v1.json`](schema/v1.json) (`npx boilauth schema` prints the live shape);
-a test fails if the live schema drifts from it. Tables: `user`, `session`,
-`account`, `verification`, `rateLimit` (Better Auth + admin plugin) and
-`importedIdentity`, plus `user.failedLoginCount` / `user.lockedUntil`.
+The schema is versioned per module. `core` is always there; each option that adds
+tables or columns is its own module with a pinned file:
+
+| Module | On when | File |
+|---|---|---|
+| core | always | [`schema/core.v1.json`](schema/core.v1.json) |
+| admin | roles is admin, custom or organizations | [`schema/admin.v1.json`](schema/admin.v1.json) |
+| two-factor | mfa is not off | [`schema/two-factor.v1.json`](schema/two-factor.v1.json) |
+| mfa-admin | mfa = totp_required_admin | [`schema/mfa-admin.v1.json`](schema/mfa-admin.v1.json) |
+| organization | roles = organizations | [`schema/organization.v1.json`](schema/organization.v1.json) |
+| soft-delete | deletion = soft | [`schema/soft-delete.v1.json`](schema/soft-delete.v1.json) |
+
+`migrate` writes the enabled modules and versions into the `boilauthModule` table,
+so anything reading your auth database learns the shape from the database itself.
+A test fails if any module's live columns drift from its file.
 
 - Column types are limited to string / number / boolean / date, so the whole DB
   exports to SQLite as is:
   `npx boilauth export-sqlite backup.db` and `npx boilauth import-sqlite backup.db`.
   The test suite runs export → re-import and compares every row.
-- A change to the column set bumps `SCHEMA_VERSION` and ships `schema/v<N>.json`
-  with a migration note. Tools that read your auth DB can key off the version.
+- Changing a module's columns bumps that module's version and ships
+  `schema/<module>.v<N>.json` with a migration note.
 
 ## Security model
 
@@ -170,16 +231,17 @@ a test fails if the live schema drifts from it. Tables: `user`, `session`,
 ## Tests
 
 ```bash
-npm test                                           # SQLite, in-memory
-BOILAUTH_PG_URL=postgres://… npm test              # also runs the Postgres path (empty scratch DB)
+npm test                                           # SQLite, in-memory; also generates 5 projects and runs their tests
+BOILAUTH_PG_URL=postgres://… npm test              # also runs the Postgres paths (empty scratch DB)
 ```
 
 Hash fixtures are published vectors only (pyca/bcrypt, firebase/scrypt README);
-see [`test/fixtures/README.md`](test/fixtures/README.md). Behaviour spec:
+see [`fixtures/README.md`](fixtures/README.md). Behaviour spec:
 [`spec/boilauth.pseudo.md`](spec/boilauth.pseudo.md).
 
 ## Roadmap (not built)
 
 - Hosted advisory feed and dashboard
 - Other source formats (Clerk, Cognito, Auth0 custom hashes, PBKDF2/SHA variants)
+- Passkeys, Drizzle / Prisma adapters
 - Python package

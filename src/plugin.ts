@@ -51,6 +51,15 @@ export function boilauthPlugin(opts: BoilauthPluginOptions) {
           lockedUntil: { type: "date", required: false, input: false, returned: false },
         },
       },
+      // Which boilauth schema modules (and versions) this database carries.
+      // Written by migrate(); read by anything that attaches to the schema.
+      boilauthModule: {
+        fields: {
+          name: { type: "string", required: true, unique: true },
+          version: { type: "number", required: true },
+          installedAt: { type: "date", required: true },
+        },
+      },
       // Where an imported user came from. One row per (source, sourceId);
       // several rows may point at one user after a verified-email merge.
       importedIdentity: {
@@ -68,7 +77,7 @@ export function boilauthPlugin(opts: BoilauthPluginOptions) {
           matcher: (ctx) => ctx.path === SIGN_IN,
           handler: createAuthMiddleware(async (ctx) => {
             const email = typeof ctx.body?.email === "string" ? ctx.body.email.toLowerCase() : "";
-            if (!email) return;
+            if (!email || opts.lockout.maxFailures <= 0) return;
             const found = await ctx.context.internalAdapter.findUserByEmail(email);
             const lockedUntil = (found?.user as { lockedUntil?: Date | null } | undefined)?.lockedUntil;
             if (lockedUntil && new Date(lockedUntil).getTime() > now().getTime()) {
@@ -105,7 +114,7 @@ export function boilauthPlugin(opts: BoilauthPluginOptions) {
             const returned = ctx.context.returned as { status?: string; statusCode?: number } | undefined;
             const wasBadPassword =
               returned instanceof APIError && (returned.status === "UNAUTHORIZED" || returned.statusCode === 401);
-            if (!wasBadPassword || !email) return;
+            if (!wasBadPassword || !email || opts.lockout.maxFailures <= 0) return;
             const found = await ia.findUserByEmail(email);
             if (!found) return;
             const u = found.user as { failedLoginCount?: number | null; lockedUntil?: Date | null };

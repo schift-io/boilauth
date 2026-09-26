@@ -1,0 +1,17 @@
+test("{{MAX_FAILURES}} wrong passwords lock the account for {{LOCK_MIN}} minutes, with the same 401", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const { email } = await h.newUser(auth, "lock");
+  for (let i = 0; i < {{MAX_FAILURES}}; i++) {
+    assert.equal((await h.call(auth, "/sign-in/email", { body: { email, password: `wrong-${i}-pw` } })).status, 401);
+  }
+  const locked = await h.call(auth, "/sign-in/email", { body: { email, password: h.PW } });
+  assert.equal(locked.status, 401, "the right password is refused while locked");
+  assert.equal(locked.json.code, "INVALID_EMAIL_OR_PASSWORD");
+
+  const ctx = await auth.$context;
+  const row = (await ctx.internalAdapter.findUserByEmail(email))!.user as unknown as { id: string; lockedUntil: Date };
+  const minutes = (new Date(row.lockedUntil).getTime() - Date.now()) / 60000;
+  assert.ok(minutes > {{LOCK_MIN}} - 1 && minutes <= {{LOCK_MIN}}, `locked for ${minutes} min`);
+  await ctx.internalAdapter.updateUser(row.id, { lockedUntil: new Date(Date.now() - 1000) });
+  assert.equal((await h.call(auth, "/sign-in/email", { body: { email, password: h.PW } })).status, 200, "unlocked after the window");
+});

@@ -1,4 +1,5 @@
 {
+  "module": "core",
   "version": 1,
   "tables": {
     "account": {
@@ -51,6 +52,20 @@
         "required": true
       }
     },
+    "boilauthModule": {
+      "installedAt": {
+        "type": "date",
+        "required": true
+      },
+      "name": {
+        "type": "string",
+        "required": true
+      },
+      "version": {
+        "type": "number",
+        "required": true
+      }
+    },
     "importedIdentity": {
       "createdAt": {
         "type": "date",
@@ -92,10 +107,6 @@
         "type": "date",
         "required": true
       },
-      "impersonatedBy": {
-        "type": "string",
-        "required": false
-      },
       "ipAddress": {
         "type": "string",
         "required": false
@@ -118,18 +129,6 @@
       }
     },
     "user": {
-      "banExpires": {
-        "type": "date",
-        "required": false
-      },
-      "banReason": {
-        "type": "string",
-        "required": false
-      },
-      "banned": {
-        "type": "boolean",
-        "required": false
-      },
       "createdAt": {
         "type": "date",
         "required": true
@@ -157,10 +156,6 @@
       "name": {
         "type": "string",
         "required": true
-      },
-      "role": {
-        "type": "string",
-        "required": false
       },
       "updatedAt": {
         "type": "date",

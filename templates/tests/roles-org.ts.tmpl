@@ -1,0 +1,23 @@
+test("organizations: create, invite by mail, accept, member roles", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const owner = await h.newUser(auth, "own");
+{{ORG_OWNER_SETUP}}  const created = await h.call(auth, "/organization/create", { body: { name: "Acme", slug: `acme-${Date.now()}` }, jar: owner.jar });
+  assert.equal(created.status, 200, JSON.stringify(created.json));
+  const organizationId = created.json.id as string;
+
+  const guest = await h.newUser(auth, "mem");
+  const inv = await h.call(auth, "/organization/invite-member", { body: { email: guest.email, role: "member", organizationId }, jar: owner.jar });
+  assert.equal(inv.status, 200, JSON.stringify(inv.json));
+  const invitationId = h.lastMail(guest.email, "/accept-invitation/").split("/accept-invitation/")[1];
+  const acc = await h.call(auth, "/organization/accept-invitation", { body: { invitationId }, jar: guest.jar });
+  assert.equal(acc.status, 200, JSON.stringify(acc.json));
+
+  const members = await h.call(auth, `/organization/list-members?organizationId=${organizationId}`, { jar: owner.jar });
+  const roles = Object.fromEntries(members.json.members.map((m: any) => [m.user.email, m.role]));
+  assert.equal(roles[owner.email], "owner");
+  assert.equal(roles[guest.email], "member");
+  const third = h.newEmail("x");
+  const refused = await h.call(auth, "/organization/invite-member", { body: { email: third, role: "member", organizationId }, jar: guest.jar });
+  assert.equal(refused.status, 403, "a member cannot invite");
+});
+{{ORG_ADMIN_ONLY}}

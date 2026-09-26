@@ -1,0 +1,15 @@
+test("roles = custom ({{ROLES}}): permissions come from src/permissions.ts", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const can = async (email: string, action: string) => {
+    const ctx = await auth.$context;
+    const u = await ctx.internalAdapter.findUserByEmail(email);
+    const r = await auth.api.userHasPermission({ body: { userId: u!.user.id, permissions: { project: [action] } as never } });
+    return r.success;
+  };
+  const { email: plain } = await h.newUser(auth, "rc");
+  assert.equal(await can(plain, "read"), true);
+  assert.equal(await can(plain, "update"), false);
+  const { email: admin } = await h.newUser(auth, "rc");
+  await boil.grantRole(auth, admin, "admin");
+  assert.equal(await can(admin, "delete"), true);
+{{CUSTOM_ROLE_CHECKS}}});

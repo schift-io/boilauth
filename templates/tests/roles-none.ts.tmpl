@@ -1,0 +1,5 @@
+test("roles = none: there are no admin endpoints", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const { jar } = await h.newUser(auth, "nr");
+  assert.equal((await h.call(auth, "/admin/list-users", { jar })).status, 404);
+});

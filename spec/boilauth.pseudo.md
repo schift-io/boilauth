@@ -77,11 +77,11 @@ account to whoever registered the address first (account pre-hijacking).
 
 role matches ^[a-z][a-z0-9_-]{0,31}$ ; update user.role ; delete all sessions of user.
 
-## [X1] Schema contract — `src/schema.ts`, `schema/v1.json`
+## [X1] Schema contract — `src/schema.ts`, `schema/<module>.v<N>.json`
 
-SCHEMA_VERSION = 1. Column types limited to string|number|boolean|date.
-describeSchema(live) must equal schema/v<SCHEMA_VERSION>.json (test). A change to the
-column set bumps SCHEMA_VERSION and adds schema/v<N+1>.json + a migration note.
+Versioned per module (see [X3]); MODULE_VERSIONS holds the numbers. Column types limited to
+string|number|boolean|date. Each module's live delta must equal its file (test). Changing a module's
+columns bumps its version and adds schema/<module>.v<N+1>.json + a migration note.
 
 ## [X2] Export / re-import
 
@@ -92,3 +92,68 @@ export-sqlite refuses to overwrite an existing file.
 
 Only on explicit call or BOILAUTH_UPDATE_CHECK=1 + BOILAUTH_ADVISORY_URL. GET only, no payload.
 Version comparison is local. Exit 2 from the CLI when a high/critical advisory matches.
+
+---
+
+# Wizard modules (0.2). Policy keys in docs/EDGE_CASES.md point here.
+
+## [B2] Magic link — better-auth `magicLink`
+POST /sign-in/magic-link {email} -> mail with /magic-link/verify?token ; GET it -> session. Token single use.
+
+## [B3] OAuth — better-auth `socialProviders` (google, github, apple, kakao, naver)
+POST /sign-in/social {provider} -> authorize URL of that provider with our client_id.
+Callback exchanges the code; Google's id_token claims give email + email_verified.
+Apple also needs trustedOrigins += https://appleid.apple.com (generated).
+
+## [E1] Email verification
+required: password sign-in before verifying -> 403 EMAIL_NOT_VERIFIED. optional: 200.
+Both: verification mail on sign-up.
+
+## [E2] Account linking
+verified_only: accountLinking.enabled, requireLocalEmailVerified -> an OAuth identity joins an existing
+user only when the local user is verified and the provider says verified.
+never: accountLinking.enabled = false -> the callback refuses (no account row added).
+
+## [F1] Breached passwords — better-auth `haveIBeenPwned`
+SHA-1 prefix (5 hex) sent to api.pwnedpasswords.com/range; match -> 400 PASSWORD_COMPROMISED.
+Paths: sign-up, change-password, reset-password (and admin create/set-password).
+
+## [S2] Revoke on password change — `boilauth/sessions`
+before /change-password: body.revokeOtherSessions = true (server-side, whatever the client sent).
+
+## [S3] Single device — `boilauth/sessions`
+after any request that set ctx.context.newSession: delete the user's other sessions.
+Runs after twoFactor's after-hook (plugin order), so a pending 2FA sign-in ends nothing.
+
+## [H1] TOTP — better-auth `twoFactor`
+/two-factor/enable {password} -> totpURI ; /two-factor/verify-totp {code} activates.
+Password sign-in of an enrolled user -> {twoFactorRedirect: true}, no session until verify-totp.
+Magic link and OAuth sign-ins are outside this challenge (Better Auth hooks /sign-in/email only).
+
+## [H2] TOTP required for admins — `boilauth/mfa`
+after verify-totp / verify-backup-code: session.mfaVerifiedAt = now (new session or current one).
+before /admin/*: role in adminRoles AND (not twoFactorEnabled OR session.mfaVerifiedAt empty) -> 403 MFA_REQUIRED.
+So a magic-link or OAuth session never reaches admin endpoints.
+
+## [G2] Custom roles — better-auth access control
+generated src/permissions.ts: statement = admin defaults + project[create,read,update,delete];
+admin = all, user = project.read, every other listed role = project.read+update (edit the file).
+admin({ ac, roles, adminRoles:[admin], defaultRole:user }).
+
+## [G3] Organizations — better-auth `organization`
+create (any_user | admin_only via allowUserToCreateOrganization) ; invite -> mail with /accept-invitation/<id> ;
+accept -> member. Org roles owner/admin/member (plugin defaults); members cannot invite.
+
+## [D1] Hard delete: user.deleteUser.enabled = true (POST /delete-user, password or fresh session).
+## [D2] Soft delete — `boilauth/deletion`
+POST /boilauth/delete-account {password if the user has one}: user.deletedAt = now, delete all sessions.
+db hook session.create.before: user.deletedAt set -> refuse (covers every sign-in method).
+Uses the transaction-bound adapter (getCurrentAdapter); a plain adapter call deadlocks single-connection SQLite.
+purgeDeleted(days): hard-delete users with deletedAt < now - days. /delete-user stays off.
+## [D3] Export: GET /boilauth/export-account (session) -> user, accounts (provider ids only),
+sessions (times, ip, user agent; no tokens), imported identities. No hashes.
+
+## [X3] Schema modules
+core always ; admin (roles != none) ; two-factor (mfa != off) ; mfa-admin (totp_required_admin) ;
+organization (roles = organizations) ; soft-delete (deletion = soft).
+Each has schema/<module>.v<N>.json = its delta over its base; migrate(auth) rewrites boilauthModule rows.

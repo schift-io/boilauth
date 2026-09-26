@@ -1,0 +1,13 @@
+test("admins need a TOTP-verified session for /admin/*", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const { email } = await h.newUser(auth, "adm");
+  await boil.grantRole(auth, email, "admin");
+  const plain = await h.signIn(auth, email);
+  const denied = await h.call(auth, "/admin/list-users", { jar: plain });
+  assert.equal(denied.status, 403);
+  assert.equal(denied.json.code, "MFA_REQUIRED");
+  const uri = await enrollTotp(auth, plain);
+  assert.equal((await h.call(auth, "/admin/list-users", { jar: plain })).status, 200, "enrolment proved the code on this session");
+  const fresh = await passwordThenTotp(auth, email, uri);
+  assert.equal((await h.call(auth, "/admin/list-users", { jar: fresh })).status, 200);
+{{MFA_ADMIN_MAGIC}}});

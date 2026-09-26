@@ -15,7 +15,7 @@ export const FIREBASE_SAMPLE_KEY: FirebaseProjectKey = {
 };
 
 export function fixture(name: string): string {
-  return readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8");
+  return readFileSync(new URL(`../fixtures/${name}`, import.meta.url), "utf8");
 }
 
 export async function makeAuth(extra: Partial<BoilAuthOptions> = {}, file = ":memory:") {
@@ -27,7 +27,7 @@ export async function makeAuth(extra: Partial<BoilAuthOptions> = {}, file = ":me
     ...extra,
     betterAuth: { logger: { disabled: true }, ...extra.betterAuth },
   });
-  await migrate(auth.boilauth.options);
+  await migrate(auth);
   return auth;
 }
 

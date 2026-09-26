@@ -1,0 +1,12 @@
+test("data export: the user downloads their own data, without hashes or tokens", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const { email, jar } = await h.newUser(auth, "exp");
+  const r = await h.call(auth, "/boilauth/export-account", { jar });
+  assert.equal(r.status, 200);
+  assert.equal(r.json.user.email, email);
+  assert.ok(Array.isArray(r.json.accounts));
+  assert.ok(r.json.sessions.length >= 1, "the current session is listed");
+  const raw = JSON.stringify(r.json);
+  assert.ok(!raw.includes("$argon2id$") && !raw.includes('"token"') && !raw.includes('"password"'));
+  assert.equal((await h.call(auth, "/boilauth/export-account")).status, 401, "needs a session");
+});

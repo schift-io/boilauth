@@ -1,0 +1,33 @@
+test("email + password: sign-up, verification {{VERIFICATION}}, sign-in, wrong password", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const email = h.newEmail("core");
+  const up = await h.call(auth, "/sign-up/email", { body: { email, password: h.PW, name: "Core" } });
+  assert.equal(up.status, 200, JSON.stringify(up.json));
+  const link = h.lastMail(email, "/verify-email");
+  const early = await h.call(auth, "/sign-in/email", { body: { email, password: h.PW } });
+  assert.equal(early.status, {{EARLY_STATUS}}, "sign-in before verifying");
+  await h.call(auth, link);
+  assert.equal((await h.call(auth, "/sign-in/email", { body: { email, password: h.PW } })).status, 200);
+  const wrong = await h.call(auth, "/sign-in/email", { body: { email, password: "wrong-password-9" } });
+  assert.equal(wrong.status, 401);
+  assert.equal(wrong.json.code, "INVALID_EMAIL_OR_PASSWORD");
+});
+
+test("passwords shorter than {{MIN_LEN}} characters are refused", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const short = await h.call(auth, "/sign-up/email", { body: { email: h.newEmail("len"), password: "p".repeat({{MIN_LEN}} - 1), name: "L" } });
+  assert.equal(short.status, 400);
+  const ok = await h.call(auth, "/sign-up/email", { body: { email: h.newEmail("len"), password: "p".repeat({{MIN_LEN}}), name: "L" } });
+  assert.equal(ok.status, 200);
+});
+
+test("sign-in: {{RATE}} attempts per minute per IP, then 429", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const ip = h.nextIp();
+  for (let i = 0; i < {{RATE}}; i++) {
+    const r = await h.call(auth, "/sign-in/email", { body: { email: h.newEmail("rl"), password: "whatever-pw-1" }, ip });
+    assert.equal(r.status, 401);
+  }
+  const over = await h.call(auth, "/sign-in/email", { body: { email: h.newEmail("rl"), password: "whatever-pw-1" }, ip });
+  assert.equal(over.status, 429);
+});

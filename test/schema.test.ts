@@ -4,8 +4,12 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  SCHEMA_VERSION,
+  MODULE_VERSIONS,
   copyAuthData,
+  enabledModules,
+  installedModules,
+  mergeShapes,
+  type SchemaModule,
   describeSchema,
   dumpAll,
   grantRole,
@@ -15,14 +19,31 @@ import {
   parseSupabaseExport,
 } from "../src/index.js";
 import { FIREBASE_SAMPLE_KEY, fixture, makeAuth, signIn, storedHash } from "./helpers.js";
+import { liveModuleShape } from "./schema-modules.js";
 
-test("live schema equals the published contract schema/v1.json", async () => {
+function pinned(m: SchemaModule) {
+  return JSON.parse(readFileSync(new URL(`../schema/${m}.v${MODULE_VERSIONS[m]}.json`, import.meta.url), "utf8"));
+}
+
+test("every schema module matches its pinned contract file", () => {
+  const modules = Object.keys(MODULE_VERSIONS) as SchemaModule[];
+  assert.ok(modules.length >= 2, "no modules to check");
+  for (const m of modules) {
+    const file = pinned(m);
+    assert.equal(file.version, MODULE_VERSIONS[m], m);
+    const live = liveModuleShape(m);
+    assert.ok(Object.keys(live).length > 0, `module ${m} adds nothing`);
+    assert.deepEqual(live, file.tables, `schema drift in module ${m}`);
+  }
+});
+
+test("the default instance (core + admin) is exactly the union of its module files, and migrate records it", async () => {
   const auth = await makeAuth();
-  const pinned = JSON.parse(readFileSync(new URL("../schema/v1.json", import.meta.url), "utf8"));
-  const live = describeSchema(auth.boilauth.options);
-  assert.equal(live.version, SCHEMA_VERSION);
-  assert.ok(Object.keys(live.tables).length > 0, "contract must describe at least one table");
-  assert.deepEqual(live, pinned);
+  const mods = enabledModules(auth.boilauth.options);
+  assert.deepEqual(mods, ["core", "admin"]);
+  const live = describeSchema(auth.boilauth.options).tables;
+  assert.deepEqual(live, mergeShapes(...mods.map((m) => pinned(m).tables)));
+  assert.deepEqual(await installedModules(auth), { core: 1, admin: 1 });
 });
 
 test("every column type is SQLite-exportable", async () => {
@@ -31,6 +52,8 @@ test("every column type is SQLite-exportable", async () => {
   const cols = Object.values(desc.tables).reduce((n, t) => n + Object.keys(t).length, 0);
   assert.ok(cols > 0, "scanned zero columns");
   assert.deepEqual(nonExportableFields(desc), []);
+  const all = mergeShapes(...(Object.keys(MODULE_VERSIONS) as SchemaModule[]).map((m) => pinned(m).tables));
+  assert.deepEqual(nonExportableFields({ version: 0, tables: all }), [], "a module adds a non-SQLite type");
 });
 
 test("export → SQLite file → re-import: every row identical, logins still work", async () => {

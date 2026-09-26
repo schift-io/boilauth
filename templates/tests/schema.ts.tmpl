@@ -1,0 +1,4 @@
+test("schema modules recorded in the database: {{MODULES_LABEL}}", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  assert.deepEqual(await boil.installedModules(auth), {{MODULES}});
+});

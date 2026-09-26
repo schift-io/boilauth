@@ -1,0 +1,19 @@
+test("account linking = {{LINKING}}: OAuth identity with an existing email", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const ctx = await auth.$context;
+  const linked = async (email: string) => {
+    const u = await ctx.internalAdapter.findUserByEmail(email, { includeAccounts: true });
+    return u!.accounts.some((a: { providerId: string }) => a.providerId === "google");
+  };
+  const verified = h.newEmail("lv");
+  const user = (email: string, emailVerified: boolean) =>
+    ctx.adapter.create({ model: "user", data: { email, name: "Local", emailVerified, createdAt: new Date(), updatedAt: new Date() } });
+  await user(verified, true);
+  const unverified = h.newEmail("lu");
+  await user(unverified, false);
+
+  const a = await h.googleSignIn(auth, verified, true);
+  assert.equal(await linked(verified), {{LINK_VERIFIED}}, `verified local user: ${a.res.location}`);
+  const b = await h.googleSignIn(auth, unverified, true);
+  assert.equal(await linked(unverified), false, `unverified local user is never linked: ${b.res.location}`);
+});

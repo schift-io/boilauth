@@ -1,0 +1,23 @@
+/** Google is the provider the tests drive end to end; its token endpoint is mocked. */
+export function fakeIdToken(claims: Record<string, unknown>): string {
+  const b = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  return `${b({ alg: "none", typ: "JWT" })}.${b(claims)}.sig`;
+}
+
+export async function googleSignIn(auth: Auth, email: string, verified: boolean, jar: Jar = new Map()) {
+  const start = await call(auth, "/sign-in/social", { body: { provider: "google", callbackURL: "/" }, jar });
+  if (!start.json?.url) throw new Error(`sign-in/social ${start.status} ${JSON.stringify(start.json)}`);
+  const state = new URL(start.json.url).searchParams.get("state")!;
+  const token = () =>
+    Response.json({
+      access_token: "test-access-token",
+      token_type: "Bearer",
+      expires_in: 3600,
+      id_token: fakeIdToken({ sub: `google-${email}`, email, email_verified: verified, name: "Google User" }),
+    });
+  const res = await withFetch(
+    (url) => (url.startsWith("https://oauth2.googleapis.com/token") ? token() : null),
+    () => call(auth, `/callback/google?code=test-code&state=${encodeURIComponent(state)}`, { jar }),
+  );
+  return { res, jar };
+}

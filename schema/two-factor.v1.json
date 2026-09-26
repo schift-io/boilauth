@@ -1,0 +1,38 @@
+{
+  "module": "two-factor",
+  "version": 1,
+  "tables": {
+    "twoFactor": {
+      "backupCodes": {
+        "type": "string",
+        "required": true
+      },
+      "failedVerificationCount": {
+        "type": "number",
+        "required": false
+      },
+      "lockedUntil": {
+        "type": "date",
+        "required": false
+      },
+      "secret": {
+        "type": "string",
+        "required": true
+      },
+      "userId": {
+        "type": "string",
+        "required": true
+      },
+      "verified": {
+        "type": "boolean",
+        "required": false
+      }
+    },
+    "user": {
+      "twoFactorEnabled": {
+        "type": "boolean",
+        "required": false
+      }
+    }
+  }
+}

@@ -1,0 +1,20 @@
+test("OAuth: each provider redirects to its own authorize endpoint with our client id", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const hosts: Record<string, string> = {{OAUTH_HOSTS}};
+  assert.ok(Object.keys(hosts).length > 0);
+  for (const [provider, host] of Object.entries(hosts)) {
+    const r = await h.call(auth, "/sign-in/social", { body: { provider, callbackURL: "/" } });
+    assert.equal(r.status, 200, `${provider}: ${JSON.stringify(r.json)}`);
+    const url = new URL(r.json.url);
+    assert.equal(url.hostname, host, provider);
+    assert.equal(url.searchParams.get("client_id"), `test-${provider}-id`, provider);
+  }
+});
+
+test("OAuth callback (Google, token endpoint mocked) creates the user and a session", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const email = h.newEmail("g");
+  const { res, jar } = await h.googleSignIn(auth, email, true);
+  assert.equal(res.status, 302);
+  assert.equal((await h.currentSession(auth, jar))?.user.email, email);
+});

@@ -78,7 +78,7 @@ export async function importUsers(auth: AuthLike, source: ImportSource, records:
         name: rec.name ?? "",
         emailVerified: rec.emailVerified,
         ...(rec.createdAt ? { createdAt: rec.createdAt } : {}),
-      });
+      }, { method: `boilauth-import:${source}` }); // provisioning source; runs user.validateUserInfo if you set one
       if (rec.passwordHash) {
         await ia.createAccount({ userId: user.id, providerId: "credential", accountId: user.id, password: rec.passwordHash });
       }
