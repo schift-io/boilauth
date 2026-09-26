@@ -34,10 +34,16 @@ export interface Answers {
   password: { minLength: number; breachedCheck: "off" | "hibp" };
   lockout: { maxFailures: number; minutes: number };
   rateLimit: { signInPerMinute: number; sendPerIpPerHour: number; sendPerAccountPerHour: number; storage: "database" | "memory" };
-  session: { days: number; revokeOnPasswordChange: boolean; devices: "multi" | "single" };
+  session: { days: number; revokeOnPasswordChange: boolean; devices: "multi" | "single"; bearer: boolean };
   mfa: { mode: "off" | "totp_optional" | "totp_required_admin"; backupCodes: number; emailOtp: boolean };
-  roles: { mode: "none" | "admin" | "custom" | "organizations"; custom: string[]; orgCreation: "any_user" | "admin_only" };
-  deletion: { mode: "hard" | "soft"; export: boolean };
+  roles: { mode: "none" | "admin" | "custom" | "organizations"; custom: string[]; orgCreation: "any_user" | "admin_only"; hideAdmin: boolean };
+  deletion: {
+    mode: "hard" | "soft";
+    export: boolean;
+    guard: boolean;
+    records: "delete" | "anonymize";
+    lastOrgOwner: "block" | "transfer_to_oldest_admin";
+  };
 }
 
 export const DEFAULT_ANSWERS: Answers = {
@@ -51,10 +57,10 @@ export const DEFAULT_ANSWERS: Answers = {
   password: { minLength: 10, breachedCheck: "off" },
   lockout: { maxFailures: 5, minutes: 15 },
   rateLimit: { signInPerMinute: 10, sendPerIpPerHour: 10, sendPerAccountPerHour: 5, storage: "database" },
-  session: { days: 7, revokeOnPasswordChange: true, devices: "multi" },
+  session: { days: 7, revokeOnPasswordChange: true, devices: "multi", bearer: false },
   mfa: { mode: "off", backupCodes: 10, emailOtp: false },
-  roles: { mode: "admin", custom: ["admin", "editor", "user"], orgCreation: "any_user" },
-  deletion: { mode: "hard", export: true },
+  roles: { mode: "admin", custom: ["admin", "editor", "user"], orgCreation: "any_user", hideAdmin: false },
+  deletion: { mode: "hard", export: true, guard: false, records: "delete", lastOrgOwner: "block" },
 };
 
 export type Partialish<T> = { [K in keyof T]?: T[K] extends object ? (T[K] extends unknown[] ? T[K] : Partialish<T[K]>) : T[K] };
@@ -96,6 +102,8 @@ export function validateAnswers(a: Answers): string[] {
   int(a.rateLimit.sendPerIpPerHour, 0, 1000, "rateLimit.sendPerIpPerHour");
   int(a.rateLimit.sendPerAccountPerHour, 0, 1000, "rateLimit.sendPerAccountPerHour");
   if (!["database", "memory"].includes(a.rateLimit.storage)) errs.push(`rateLimit.storage: unknown ${a.rateLimit.storage}`);
+  if (!["delete", "anonymize"].includes(a.deletion.records)) errs.push(`deletion.records: unknown ${a.deletion.records}`);
+  if (!["block", "transfer_to_oldest_admin"].includes(a.deletion.lastOrgOwner)) errs.push(`deletion.lastOrgOwner: unknown ${a.deletion.lastOrgOwner}`);
   int(a.session.days, 1, 90, "session.days");
   int(a.mfa.backupCodes, 5, 20, "mfa.backupCodes");
   int(a.migration.firebase.rounds, 1, 64, "migration.firebase.rounds");

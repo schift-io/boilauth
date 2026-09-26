@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { Answers } from "../wizard/answers.js";
-import { authFile, configFile, emailFile, envExample, permissionsFile, smsFile } from "./auth-file.js";
+import { authFile, configFile, deletionGuardFile, emailFile, envExample, permissionsFile, smsFile } from "./auth-file.js";
 import { FIXTURES, helpersFile, testFile } from "./test-files.js";
 import { usernameRulesYaml } from "../modules/username.js";
 
@@ -81,6 +81,7 @@ export function planProject(a: Answers): PlannedFile[] {
     { path: "package.json", content: packageJson(a), owned: true },
     { path: "tsconfig.json", content: TSCONFIG, owned: true },
   ];
+  if (a.deletion.guard) files.push({ path: "src/deletion-guard.ts", content: deletionGuardFile(), owned: true });
   if (a.roles.mode === "custom") files.push({ path: "src/permissions.ts", content: permissionsFile(a), owned: true });
   if (a.signIn.phone) files.push({ path: "src/sms.ts", content: smsFile(), owned: true });
   if (a.signIn.emailPassword && a.signIn.username) files.push({ path: "boilauth.username.yaml", content: usernameRulesYaml(), owned: true });

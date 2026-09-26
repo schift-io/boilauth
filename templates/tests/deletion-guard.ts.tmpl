@@ -1,0 +1,16 @@
+test("deletion guard: the app's veto answers 409 with its code and nothing changes", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth({ canDelete: async () => ({ ok: false, code: "active_subscription", message: "Cancel the subscription first" }) });
+  const { email, jar } = await h.newUser(auth, "grd");
+  const r = await h.call(auth, "{{DELETE_PATH}}", { body: {{DELETE_BODY}}, jar });
+  assert.equal(r.status, 409, JSON.stringify(r.json));
+  assert.equal(r.json.code, "active_subscription");
+  assert.ok(await h.currentSession(auth, jar), "still signed in");
+  const ctx = await auth.$context;
+  assert.ok(await ctx.internalAdapter.findUserByEmail(email), "account kept");
+});
+
+test("deletion guard: src/deletion-guard.ts as generated lets the deletion through", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const { jar } = await h.newUser(auth, "grdok");
+  assert.equal((await h.call(auth, "{{DELETE_PATH}}", { body: {{DELETE_BODY}}, jar })).status, 200);
+});

@@ -169,6 +169,32 @@ purgeDeleted(days): hard-delete users with deletedAt < now - days. /delete-user 
 ## [D3] Export: GET /boilauth/export-account (session) -> user, accounts (provider ids only),
 sessions (times, ip, user agent; no tokens), imported identities. No hashes.
 
+## [D4] Deletion guard — `canDelete(user)` from src/deletion-guard.ts
+Runs first on every self-service deletion (hard: Better Auth beforeDelete; soft or anonymize:
+POST /boilauth/delete-account). {ok:false, code, message} -> 409 {code, message}; nothing changes.
+
+## [D5] Organizations and deletion — `boilauth/deletion` with organizations
+for each org where the user holds "owner", no other owner exists and other members remain:
+  block -> 409 ORG_OWNER_TRANSFER_REQUIRED
+  transfer_to_oldest_admin -> the member with "admin" who joined first becomes "owner"; none -> 409 as above
+All orgs are checked before any role changes. The user's member rows are removed (hard: after delete;
+soft/anonymize: at deletion). A sole-member org is left with no members.
+
+## [D6] records = anonymize
+Final step keeps the user row: sessions ended; account (credential, OAuth), importedIdentity, twoFactor rows
+removed; email -> deleted+<id>@deleted.invalid, name "", image/username/displayUsername/phoneNumber null,
+emailVerified/phoneNumberVerified/twoFactorEnabled false. hard: immediately via POST /boilauth/delete-account
+(Better Auth /delete-user off). soft: purgeDeleted anonymizes instead of removing; already anonymized rows are skipped.
+Passwordless users need a session younger than freshAge on /boilauth/delete-account (same rule as /delete-user).
+
+## [S4] Bearer — better-auth `bearer`
+Authorization: Bearer <signed session token> is turned into the session cookie for that request;
+responses that set the session cookie also send set-auth-token. Unsigned tokens are ignored.
+
+## [G4] Admin route hiding
+/admin/* for a caller without an admin role (or without a session) -> 404 before the admin plugin runs.
+Admins pass through (boilauth/mfa may still answer 403 MFA_REQUIRED).
+
 ## [X3] Schema modules
 core always ; admin (roles != none) ; two-factor (mfa != off) ; mfa-admin (totp_required_admin) ;
 organization (roles = organizations) ; soft-delete (deletion = soft).

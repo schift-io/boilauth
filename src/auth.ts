@@ -9,12 +9,13 @@
  * literal values; see docs/EDGE_CASES.md for which key drives which option.
  */
 import { betterAuth, type BetterAuthOptions, type BetterAuthPlugin, type User } from "better-auth";
-import { admin, username as usernamePlugin } from "better-auth/plugins";
+import { admin, bearer, username as usernamePlugin } from "better-auth/plugins";
 import { createPasswordHasher, type Argon2Params, type FirebaseProjectKey } from "./hash/index.js";
 import { boilauthPlugin, type LockoutOptions } from "./plugin.js";
 import { normalizeUsername, usernamePluginOptions, type UsernameRules } from "./modules/username.js";
 import { phonePlugin, type PhoneOptions } from "./modules/phone.js";
 import { SEND_LIMIT_PLUGIN_ID, withRateLimitHeaders } from "./modules/rate-limit.js";
+import { hideAdminRoutes } from "./modules/admin-hide.js";
 
 export const PRESETS = {
   minPasswordLength: 10,
@@ -78,6 +79,13 @@ export interface BoilAuthOptions {
   phone?: PhoneOptions;
   /** Better Auth's admin plugin (role column). Default true; set false for no roles, or pass your own admin() in plugins. */
   admin?: boolean;
+  /** Answer 404 instead of 401/403 on /admin/* to anyone without an admin role. Default false. */
+  hideAdminRoutes?: boolean;
+  /**
+   * Also accept `Authorization: Bearer <token>` (mobile and API clients) via Better Auth's
+   * bearer plugin; sign-in responses then carry a `set-auth-token` header. Default false (cookies only).
+   */
+  bearer?: boolean;
   /** Extra plugins, in order, after boilauth's own. */
   plugins?: BetterAuthPlugin[];
   /** Proxy CIDRs whose X-Forwarded-For you trust, so rate limits key on the real client IP. */
@@ -176,6 +184,8 @@ export function boilAuthOptions(o: BoilAuthOptions) {
       }),
       ...(o.username ? [usernamePlugin(usernamePluginOptions(o.username))] : []),
       ...(o.phone ? [phonePlugin(o.phone)] : []),
+      ...(o.hideAdminRoutes ? [hideAdminRoutes()] : []),
+      ...(o.bearer ? [bearer()] : []),
       ...(wantsAdmin ? [admin()] : []),
       ...userPlugins.filter((p) => p !== sendLimit),
       ...(extra.plugins ?? []),

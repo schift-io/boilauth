@@ -1,0 +1,10 @@
+test("bearer: Authorization: Bearer <token> reaches the session without cookies", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const { email, jar } = await h.newUser(auth, "br");
+  const get = async (headers: Record<string, string>) =>
+    (await auth.handler(new Request(`${h.BASE}/api/auth/get-session`, { headers }))).json();
+  assert.equal(await get({}), null, "no cookie and no token: no session");
+  const cookie = [...jar].find(([k]) => k.endsWith("session_token"))!;
+  assert.equal((await get({ authorization: `Bearer ${cookie[1]}` }))?.user?.email, email);
+  assert.equal(await get({ authorization: "Bearer not-a-real-token" }), null, "an unsigned token is ignored");
+{{BEARER_SIGNIN}}});

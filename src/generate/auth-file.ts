@@ -85,8 +85,12 @@ export function authFile(a: Answers): string {
     lines.push('import { sendLimits } from "boilauth/rate-limit";');
     plugins.push(`sendLimits({ perIpPerHour: ${a.rateLimit.sendPerIpPerHour}, perAccountPerHour: ${a.rateLimit.sendPerAccountPerHour} })`);
   }
-  lines.push('import { accountDeletion } from "boilauth/deletion";');
-  plugins.push(`accountDeletion({ mode: ${JSON.stringify(a.deletion.mode)}, exportData: ${a.deletion.export} })`);
+  lines.push(`import { accountDeletion${a.deletion.guard ? ", type DeletionCheck" : ""} } from "boilauth/deletion";`);
+  const del = [`mode: ${JSON.stringify(a.deletion.mode)}`, `exportData: ${a.deletion.export}`];
+  if (a.deletion.records === "anonymize") del.push('records: "anonymize"');
+  if (a.deletion.guard) del.push("canDelete: d.canDelete");
+  if (a.roles.mode === "organizations") del.push(`organizations: { lastOwner: ${JSON.stringify(a.deletion.lastOrgOwner)} }`);
+  plugins.push(`accountDeletion({ ${del.join(", ")} })`);
   if (needsSessionPolicy(a)) {
     lines.push('import { sessionPolicy } from "boilauth/sessions";');
     // Last: must run after twoFactor's after-hook (see boilauth/sessions).
@@ -130,6 +134,8 @@ export function authFile(a: Answers): string {
     opts.push("socialProviders: d.oauth");
   }
   if (!rolesOn) opts.push("admin: false");
+  else if (a.roles.hideAdmin) opts.push("hideAdminRoutes: true");
+  if (a.session.bearer) opts.push("bearer: true");
   const extraBetterAuth = oauth.includes("apple")
     ? '{ trustedOrigins: ["https://appleid.apple.com"], ...d.betterAuth }'
     : "d.betterAuth";
@@ -144,7 +150,7 @@ export interface AuthDeps {
   baseURL: string;
   /** Sends verification, reset${a.signIn.magicLink ? ", magic link" : ""}${a.signIn.emailOtp ? ", one-time code" : ""}${a.roles.mode === "organizations" ? ", invitation" : ""} mail. See src/email.ts. */
   email: (msg: EmailMessage) => Promise<void>;
-${a.signIn.phone ? "  /** Sends SMS codes. See src/sms.ts. */\n  sms: (msg: SmsMessage) => Promise<void>;\n" : ""}${a.migration.sources.includes("firebase") ? '  firebaseKeys?: BoilAuthOptions["firebaseKeys"];\n' : ""}${username ? "  /** boilauth.username.yaml, loaded with loadUsernameRules(). */\n  usernameRules: UsernameRules;\n" : ""}${oauthType}  betterAuth?: BoilAuthOptions["betterAuth"];
+${a.signIn.phone ? "  /** Sends SMS codes. See src/sms.ts. */\n  sms: (msg: SmsMessage) => Promise<void>;\n" : ""}${a.deletion.guard ? "  /** The app's veto on self-service deletion. See src/deletion-guard.ts. */\n  canDelete: DeletionCheck;\n" : ""}${a.migration.sources.includes("firebase") ? '  firebaseKeys?: BoilAuthOptions["firebaseKeys"];\n' : ""}${username ? "  /** boilauth.username.yaml, loaded with loadUsernameRules(). */\n  usernameRules: UsernameRules;\n" : ""}${oauthType}  betterAuth?: BoilAuthOptions["betterAuth"];
 }
 
 export function createAuth(d: AuthDeps) {
@@ -190,7 +196,7 @@ export function configFile(a: Answers): string {
   const usernameDep = username ? '  usernameRules: loadUsernameRules(new URL("./boilauth.username.yaml", import.meta.url)),\n' : "";
   return `${HEADER}// The instance your app mounts and the boilauth CLI uses (--config boilauth.config.ts).
 ${db}${usernameImport}import { createAuth } from "./src/auth.js";
-import { sendEmail } from "./src/email.js";${a.signIn.phone ? '\nimport { sendSms } from "./src/sms.js";' : ""}
+import { sendEmail } from "./src/email.js";${a.signIn.phone ? '\nimport { sendSms } from "./src/sms.js";' : ""}${a.deletion.guard ? '\nimport { canDelete } from "./src/deletion-guard.js";' : ""}
 
 function need(name: string): string {
   const v = process.env[name];
@@ -203,7 +209,7 @@ export default createAuth({
   secret: need("BOILAUTH_SECRET"),
   baseURL: process.env.BOILAUTH_URL ?? "http://localhost:3000",
   email: sendEmail,
-${a.signIn.phone ? "  sms: sendSms,\n" : ""}${firebase}${usernameDep}${oauth}});
+${a.signIn.phone ? "  sms: sendSms,\n" : ""}${a.deletion.guard ? "  canDelete,\n" : ""}${firebase}${usernameDep}${oauth}});
 `;
 }
 
@@ -261,5 +267,21 @@ export async function sendEmail(msg: EmailMessage): Promise<void> {
   }
   console.log(\`[email to \${msg.to}] \${msg.subject}\\n\${msg.text}\`);
 }
+`;
+}
+
+export function deletionGuardFile(): string {
+  return `// Generated once by \`boilauth init\` (deletion.guard). Yours to edit: init leaves it alone once it exists.
+// Called before every self-service deletion. Refusing answers 409 with your code and changes nothing.
+import type { DeletionCheck } from "boilauth/deletion";
+
+export const canDelete: DeletionCheck = async (user) => {
+  // Example: keep the account while a paid subscription is active.
+  // if (await hasActiveSubscription(user.id)) {
+  //   return { ok: false, code: "active_subscription", message: "Cancel the subscription before deleting the account" };
+  // }
+  void user;
+  return { ok: true };
+};
 `;
 }

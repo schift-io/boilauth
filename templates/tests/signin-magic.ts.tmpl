@@ -4,6 +4,7 @@ export async function signIn(auth: Auth, email: string): Promise<Jar> {
   const r = await call(auth, "/sign-in/magic-link", { body: { email, callbackURL: "/" } });
   if (r.status !== 200) throw new Error(`magic link ${r.status} ${JSON.stringify(r.json)}`);
   await call(auth, lastMail(email, "/magic-link/verify"), { jar });
+  if (!(await currentSession(auth, jar))) throw new Error("magic link gave no session");
   return jar;
 }
 

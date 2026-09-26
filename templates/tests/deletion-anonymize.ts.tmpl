@@ -1,0 +1,17 @@
+test("deletion = hard, records = anonymize: the row stays with nothing personal, sign-in is gone", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const { email, jar } = await h.newUser(auth, "anon");
+  const ctx = await auth.$context;
+  const id = (await ctx.internalAdapter.findUserByEmail(email))!.user.id;
+  assert.equal((await h.call(auth, "/delete-user", { body: {{DELETE_BODY}}, jar })).status, 404, "Better Auth's row delete is off");
+  const r = await h.call(auth, "/boilauth/delete-account", { body: {{DELETE_BODY}}, jar });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.equal(await h.currentSession(auth, jar), null);
+  assert.equal(await ctx.internalAdapter.findUserByEmail(email), null);
+  const row = await ctx.adapter.findOne<Record<string, unknown>>({ model: "user", where: [{ field: "id", value: id }] });
+  assert.ok(row, "user id still resolves for payment and audit rows");
+  assert.equal(row!.email, `deleted+${id}@deleted.invalid`);
+  assert.equal(row!.name, "");
+  assert.deepEqual(await ctx.internalAdapter.findAccounts(id), [], "no credential or OAuth link left");
+  await assert.rejects(h.signIn(auth, email), "the old address cannot sign in");
+});

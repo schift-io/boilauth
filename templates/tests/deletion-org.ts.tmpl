@@ -1,0 +1,27 @@
+test("deletion + organizations: last owner = {{LAST_OWNER}}", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const owner = await h.newUser(auth, "dow");
+{{ORG_OWNER_SETUP}}  const created = await h.call(auth, "/organization/create", { body: { name: "Del", slug: `del-${Date.now()}` }, jar: owner.jar });
+  assert.equal(created.status, 200, JSON.stringify(created.json));
+  const organizationId = created.json.id as string;
+  const join = async (role: string) => {
+    const u = await h.newUser(auth, "dm");
+    assert.equal((await h.call(auth, "/organization/invite-member", { body: { email: u.email, role, organizationId }, jar: owner.jar })).status, 200);
+    const invitationId = h.lastMail(u.email, "/accept-invitation/").split("/accept-invitation/")[1];
+    assert.equal((await h.call(auth, "/organization/accept-invitation", { body: { invitationId }, jar: u.jar })).status, 200);
+    return u;
+  };
+  const member = await join("member");
+  const members = async () =>
+    (await h.call(auth, `/organization/list-members?organizationId=${organizationId}`, { jar: member.jar })).json.members as any[];
+  const roleOf = async (email: string) => (await members()).find((m) => m.user.email === email)?.role;
+  const del = () => h.call(auth, "{{DELETE_PATH}}", { body: {{DELETE_BODY}}, jar: owner.jar });
+
+  const noAdmin = await del();
+  assert.equal(noAdmin.status, 409, "no admin to take over");
+  assert.equal(noAdmin.json.code, "ORG_OWNER_TRANSFER_REQUIRED");
+  assert.equal(await roleOf(owner.email), "owner", "nothing changed");
+  const admin = await join("admin");
+{{LAST_OWNER_BRANCH}}  assert.equal(await roleOf(owner.email), undefined, "the deleted user left the organization");
+  assert.equal(await roleOf(member.email), "member");
+});

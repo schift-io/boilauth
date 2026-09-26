@@ -45,7 +45,8 @@ export function helpersFile(a: Answers): string {
   const username = a.signIn.emailPassword && a.signIn.username;
   const dbImport =
     (pg ? 'import pg from "pg";' : 'import { DatabaseSync } from "node:sqlite";') +
-    (username ? '\nimport { loadUsernameRules } from "boilauth/username";' : "");
+    (username ? '\nimport { loadUsernameRules } from "boilauth/username";' : "") +
+    (a.deletion.guard ? '\nimport { canDelete } from "../src/deletion-guard.js";' : "");
   const dbFactory = pg
     ? `export const SKIP: string | false = process.env.TEST_DATABASE_URL ? false : "TEST_DATABASE_URL not set";
 
@@ -71,6 +72,7 @@ async function testDatabase(): Promise<AuthDeps["database"]> {
   const extra: string[] = [];
   if (a.migration.sources.includes("firebase")) extra.push("    firebaseKeys: [FIREBASE_SAMPLE_KEY],");
   if (username) extra.push("    usernameRules: USERNAME_RULES,");
+  if (a.deletion.guard) extra.push("    canDelete,");
   if (a.signIn.phone) extra.push("    sms: async (m) => {\n      smsOutbox.push(m);\n    },");
   if (a.signIn.oauth.length || signInKind(a) === "google") {
     extra.push(
@@ -176,6 +178,23 @@ export function testFile(a: Answers): string {
     if (a.rateLimit.sendPerAccountPerHour > 0) blocks.push(tpl("rate-limit-account", { ...vars, PER_ACCOUNT: a.rateLimit.sendPerAccountPerHour }));
   }
   blocks.push(tpl("sessions", { DAYS: a.session.days, DEVICES: a.session.devices, FIRST_ALIVE: a.session.devices === "multi" }));
+  if (a.session.bearer) {
+    const signIn = pw
+      ? `  const res = await auth.handler(
+    new Request(\`\${h.BASE}/api/auth/sign-in/email\`, {
+      method: "POST",
+      headers: { origin: h.BASE, "content-type": "application/json", "x-forwarded-for": h.nextIp() },
+      body: JSON.stringify({ email, password: h.PW }),
+    }),
+  );
+  assert.equal(res.status, 200);
+  const token = res.headers.get("set-auth-token");
+  assert.ok(token, "sign-in answers with set-auth-token");
+  assert.equal((await get({ authorization: \`Bearer \${token}\` }))?.user?.email, email);
+`
+      : "";
+    blocks.push(tpl("bearer", { BEARER_SIGNIN: signIn }));
+  }
   if (pw && a.session.devices === "multi") {
     blocks.push(
       tpl("password-change", {
@@ -218,8 +237,7 @@ export function testFile(a: Answers): string {
     blocks.push(tpl("mfa-admin", { MFA_ADMIN_MAGIC: magic + otp + phone }));
   }
   blocks.push(rolesBlock(a));
-  const deleteBody = pw ? "{ password: h.PW }" : "{}";
-  blocks.push(tpl(`deletion-${a.deletion.mode}`, { DELETE_BODY: deleteBody }));
+  blocks.push(...deletionBlocks(a));
   if (a.deletion.export) blocks.push(tpl("export"));
   const modules = Object.fromEntries(enabledModulesFor(a).map((m) => [m, 1]));
   blocks.push(tpl("schema", { MODULES: JSON.stringify(modules), MODULES_LABEL: Object.keys(modules).join(", ") }));
@@ -236,6 +254,50 @@ export function testFile(a: Answers): string {
   return `${imports.join("\n")}\n\n${blocks.join("\n")}`;
 }
 
+function deletionBlocks(a: Answers): string[] {
+  const body = a.signIn.emailPassword ? "{ password: h.PW }" : "{}";
+  const anon = a.deletion.records === "anonymize";
+  const path = a.deletion.mode === "soft" || anon ? "/boilauth/delete-account" : "/delete-user";
+  const out: string[] = [];
+  if (a.deletion.mode === "soft") {
+    const softAnon = anon
+      ? `
+  const kept = (await ctx.adapter.findMany<{ email: string }>({ model: "user" })).filter((u) => u.email.endsWith("@deleted.invalid"));
+  assert.equal(kept.length, 1, "records = anonymize: purge keeps the row, anonymized");`
+      : "";
+    out.push(tpl("deletion-soft", { DELETE_BODY: body, SOFT_ANON: softAnon }));
+  } else {
+    out.push(tpl(anon ? "deletion-anonymize" : "deletion-hard", { DELETE_BODY: body }));
+  }
+  if (a.deletion.guard) out.push(tpl("deletion-guard", { DELETE_PATH: path, DELETE_BODY: body }));
+  if (a.roles.mode === "organizations") {
+    const branch =
+      a.deletion.lastOrgOwner === "block"
+        ? `  assert.equal((await del()).status, 409, "an admin exists, but ownership is not handed over by itself");
+  const adminMember = (await members()).find((m) => m.user.email === admin.email);
+  const promoted = await h.call(auth, "/organization/update-member-role", { body: { memberId: adminMember.id, role: "owner", organizationId }, jar: owner.jar });
+  assert.equal(promoted.status, 200, JSON.stringify(promoted.json));
+  const done = await del();
+  assert.equal(done.status, 200, JSON.stringify(done.json));
+  assert.equal(await roleOf(admin.email), "owner");
+`
+        : `  const done = await del();
+  assert.equal(done.status, 200, JSON.stringify(done.json));
+  assert.equal(await roleOf(admin.email), "owner", "the oldest admin took over");
+`;
+    out.push(tpl("deletion-org", { LAST_OWNER: a.deletion.lastOrgOwner, ORG_OWNER_SETUP: orgOwnerSetup(a), DELETE_PATH: path, DELETE_BODY: body, LAST_OWNER_BRANCH: branch }));
+  }
+  return out;
+}
+
+function orgOwnerSetup(a: Answers): string {
+  return a.roles.orgCreation === "admin_only"
+    ? `  await boil.grantRole(auth, owner.email, "admin");
+  owner.jar = await h.signIn(auth, owner.email);
+`
+    : "";
+}
+
 function rolesBlock(a: Answers): string {
   const mfaAdmin = a.mfa.mode === "totp_required_admin";
   const allowed = mfaAdmin
@@ -247,7 +309,7 @@ function rolesBlock(a: Answers): string {
     case "none":
       return tpl("roles-none");
     case "admin":
-      return tpl("roles-admin", { ADMIN_ALLOWED: allowed });
+      return tpl("roles-admin", { ADMIN_ALLOWED: allowed, ...adminDenied(a) });
     case "custom": {
       const extra = a.roles.custom.filter((r) => r !== "admin" && r !== "user");
       const checks = extra
@@ -259,15 +321,11 @@ function rolesBlock(a: Answers): string {
 `,
         )
         .join("");
-      return tpl("roles-admin", { ADMIN_ALLOWED: allowed }) + "\n" + tpl("roles-custom", { ROLES: a.roles.custom.join(", "), CUSTOM_ROLE_CHECKS: checks });
+      return tpl("roles-admin", { ADMIN_ALLOWED: allowed, ...adminDenied(a) }) + "\n" + tpl("roles-custom", { ROLES: a.roles.custom.join(", "), CUSTOM_ROLE_CHECKS: checks });
     }
     case "organizations": {
       const adminOnly = a.roles.orgCreation === "admin_only";
-      const setup = adminOnly
-        ? `  await boil.grantRole(auth, owner.email, "admin");
-  owner.jar = await h.signIn(auth, owner.email);
-`
-        : "";
+      const setup = orgOwnerSetup(a);
       const adminOnlyTest = adminOnly
         ? `
 test("organizations: only admins create them", { skip: h.SKIP }, async () => {
@@ -278,9 +336,18 @@ test("organizations: only admins create them", { skip: h.SKIP }, async () => {
 });
 `
         : "";
-      return tpl("roles-admin", { ADMIN_ALLOWED: allowed }) + "\n" + tpl("roles-org", { ORG_OWNER_SETUP: setup, ORG_ADMIN_ONLY: adminOnlyTest });
+      return tpl("roles-admin", { ADMIN_ALLOWED: allowed, ...adminDenied(a) }) + "\n" + tpl("roles-org", { ORG_OWNER_SETUP: setup, ORG_ADMIN_ONLY: adminOnlyTest });
     }
   }
+}
+
+function adminDenied(a: Answers): { ADMIN_DENIED: number; ADMIN_ANON: string } {
+  return a.roles.hideAdmin
+    ? {
+        ADMIN_DENIED: 404,
+        ADMIN_ANON: '\n  assert.equal((await h.call(auth, "/admin/list-users")).status, 404, "no session: the route looks absent too");',
+      }
+    : { ADMIN_DENIED: 403, ADMIN_ANON: "" };
 }
 
 function ident(role: string): string {

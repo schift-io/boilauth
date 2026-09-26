@@ -76,6 +76,21 @@ const SCENARIOS: Record<string, { answers: Record<string, unknown>; postgres?: b
       roles: { mode: "none" },
     },
   },
+  "orgs-transfer-anonymize-guard-bearer-hidden-admin": {
+    answers: {
+      roles: { mode: "organizations", orgCreation: "any_user", hideAdmin: true },
+      session: { bearer: true },
+      deletion: { mode: "hard", guard: true, records: "anonymize", lastOrgOwner: "transfer_to_oldest_admin" },
+    },
+  },
+  "magic-link-soft-anonymize-bearer": {
+    answers: {
+      signIn: { emailPassword: false, magicLink: true, oauth: [] },
+      roles: { mode: "admin", hideAdmin: true },
+      session: { bearer: true },
+      deletion: { mode: "soft", records: "anonymize", guard: true },
+    },
+  },
   "magic-link-only-no-roles": {
     answers: {
       signIn: { emailPassword: false, magicLink: true, oauth: [] },

@@ -82,13 +82,18 @@ they set the defaults of the policy questions, which are all still asked.
 | G | `session.days` | **7** (1..90) |
 | G | `session.revokeOnPasswordChange` | **yes** / no |
 | G | `session.devices` | **multi** / single |
+| G | `session.bearer` | yes / **no** (also accept `Authorization: Bearer`; sign-in sends `set-auth-token`) |
 | I | `roles.mode` | none / **admin** / custom / organizations |
 | I | `roles.custom` | **admin,editor,user** (asked with custom) |
 | I | `roles.orgCreation` | **any_user** / admin_only (asked with organizations) |
+| I | `roles.hideAdmin` | yes / **no** (404 on `/admin/*` for anyone who is not an admin) |
 | H | `mfa.mode` | **off** / totp_optional / totp_required_admin (the last needs roles) |
 | H | `mfa.backupCodes` | **10** (5..20, each usable once) |
 | H | `mfa.emailOtp` | yes / **no** (a mailed code as the second step; admin access still needs TOTP or a backup code) |
 | J | `deletion.mode` | **hard** / soft |
+| J | `deletion.guard` | yes / **no** (your veto in `src/deletion-guard.ts`, e.g. while a paid subscription is active; 409 with your code) |
+| J | `deletion.lastOrgOwner` | **block** / transfer_to_oldest_admin (asked with organizations) |
+| J | `deletion.records` | **delete** / anonymize (keep the row without personal data, so payment and audit rows still resolve) |
 | J | `deletion.export` | **yes** / no |
 
 What `init` writes:

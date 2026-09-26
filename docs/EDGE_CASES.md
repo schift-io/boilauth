@@ -102,6 +102,7 @@ Either way a verification mail is sent on sign-up. Import merges always need ver
 | Session lifetime | `session.days` | number 1..90, **7** | core | S1 |
 | Password change | `session.revokeOnPasswordChange` | **yes** (other sessions end) / no | `boilauth/sessions` | S2 |
 | Devices | `session.devices` | **`multi`** / `single` (a new sign-in ends the other sessions) | `boilauth/sessions` | S3 |
+| Mobile and API clients | `session.bearer` | yes / **no** (also accept `Authorization: Bearer <token>`; sign-in answers with `set-auth-token`) | better-auth `bearer` | S4 |
 
 Send endpoints are `/request-password-reset`, `/send-verification-email`, `/sign-in/magic-link`,
 `/email-otp/send-verification-otp`, `/email-otp/request-password-reset`, `/forget-password/email-otp`,
@@ -132,6 +133,7 @@ has no second step and never satisfies the admin requirement.
 | Authorization model | `roles.mode` | `none` / **`admin`** (user + admin) / `custom` (role list + permission checks) / `organizations` (orgs, members, invitations, org roles; plus user + admin) | better-auth `admin`, `organization`, access control | G1 G2 G3 |
 | Custom role names | `roles.custom` | comma list, **`admin,editor,user`** (must contain `admin` and `user`) | generated `src/permissions.ts` | G2 |
 | Who creates organizations | `roles.orgCreation` | **`any_user`** / `admin_only` | better-auth `organization` | G3 |
+| Non-admins on /admin/* | `roles.hideAdmin` | yes (404, as if the route did not exist) / **no** (401 without a session, 403 without the role) | core | G4 |
 
 Stops at roles. No attribute or policy engine.
 
@@ -141,6 +143,13 @@ Stops at roles. No attribute or policy engine.
 |---|---|---|---|---|
 | User deletes own account | `deletion.mode` | **`hard`** (rows removed, Better Auth `/delete-user`) / `soft` (`deletedAt` set, sessions ended, sign-in refused, `boilauth purge-deleted` removes later) | `boilauth/deletion` | D1 D2 |
 | Data export | `deletion.export` | **yes** (`GET /boilauth/export-account`) / no | `boilauth/deletion` | D3 |
+| App vetoes a deletion | `deletion.guard` | yes (generated `src/deletion-guard.ts`; refusal = 409 with your code) / **no** | `boilauth/deletion` | D4 |
+| Last owner of an organization with other members | `deletion.lastOrgOwner` | **`block`** (409 `ORG_OWNER_TRANSFER_REQUIRED`) / `transfer_to_oldest_admin` (refused when there is no admin); asked with organizations | `boilauth/deletion` | D5 |
+| Final step for the user row | `deletion.records` | **`delete`** / `anonymize` (row kept with `deleted+<id>@deleted.invalid`, no name, no sign-in links, so payment and audit rows keep a valid user id) | `boilauth/deletion` | D6 |
+
+Every self-service deletion needs the password when the user has one, and a session younger than
+`session.freshAge` (10 min) otherwise. With organizations the user leaves every organization; invitations
+they sent stay as history.
 
 ## Wizard question order
 

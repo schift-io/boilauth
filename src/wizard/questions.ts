@@ -164,6 +164,10 @@ export const QUESTIONS: Question[] = [
       { value: "single", label: "One device", hint: "a new sign-in ends the others" },
     ],
   },
+  {
+    key: "session.bearer", group: "G. Lockout and sessions", type: "confirm",
+    message: "Also accept Authorization: Bearer tokens? (mobile apps and API clients; sign-in returns a set-auth-token header)",
+  },
   // I. Roles (asked before MFA because one MFA option needs roles)
   {
     key: "roles.mode", group: "I. Roles", type: "select",
@@ -188,6 +192,10 @@ export const QUESTIONS: Question[] = [
       { value: "admin_only", label: "Admins only" },
     ],
   },
+  {
+    key: "roles.hideAdmin", group: "I. Roles", type: "confirm", when: (a) => a.roles.mode !== "none",
+    message: "Answer 404 instead of 401/403 on /admin/* to anyone who is not an admin?",
+  },
   // H. MFA
   {
     key: "mfa.mode", group: "H. MFA", type: "select", when: pw,
@@ -211,6 +219,26 @@ export const QUESTIONS: Question[] = [
     options: [
       { value: "hard", label: "Delete the rows" },
       { value: "soft", label: "Mark deleted, purge later" },
+    ],
+  },
+  {
+    key: "deletion.guard", group: "J. Account deletion", type: "confirm",
+    message: "Let your app refuse a deletion (e.g. while a paid subscription is active)? Generates src/deletion-guard.ts",
+  },
+  {
+    key: "deletion.lastOrgOwner", group: "J. Account deletion", type: "select", when: (a) => a.roles.mode === "organizations",
+    message: "The last owner of an organization with other members deletes their account",
+    options: [
+      { value: "block", label: "Refuse until they transfer ownership", hint: "409 ORG_OWNER_TRANSFER_REQUIRED" },
+      { value: "transfer_to_oldest_admin", label: "Make the oldest admin the owner", hint: "refused when there is no admin" },
+    ],
+  },
+  {
+    key: "deletion.records", group: "J. Account deletion", type: "select",
+    message: "What the final deletion step does to the user row",
+    options: [
+      { value: "delete", label: "Remove it" },
+      { value: "anonymize", label: "Keep it anonymized", hint: "payment and audit rows keep a valid user id" },
     ],
   },
   { key: "deletion.export", group: "J. Account deletion", type: "confirm", message: "Offer a self-service data export endpoint?" },

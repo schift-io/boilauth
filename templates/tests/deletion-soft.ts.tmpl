@@ -10,5 +10,5 @@ test("deletion = soft: marked deleted, sessions end, no new session, purge remov
   const ctx = await auth.$context;
   assert.ok(await ctx.internalAdapter.findUserByEmail(email), "row kept until purge");
   assert.equal(await purgeDeleted(auth, 0, new Date(Date.now() + 1000)), 1);
-  assert.equal(await ctx.internalAdapter.findUserByEmail(email), null);
+  assert.equal(await ctx.internalAdapter.findUserByEmail(email), null);{{SOFT_ANON}}
 });
