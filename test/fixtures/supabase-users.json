@@ -1,0 +1,18 @@
+[
+  {
+    "id": "8f2c1f4e-0000-4000-8000-000000000001",
+    "email": "Ada@Example.com",
+    "encrypted_password": "$2a$05$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW",
+    "email_confirmed_at": "2025-01-02T03:04:05.000Z",
+    "raw_user_meta_data": {"full_name": "Ada Lovelace"},
+    "created_at": "2025-01-01T00:00:00.000Z"
+  },
+  {
+    "id": "8f2c1f4e-0000-4000-8000-000000000002",
+    "email": "oauth-only@example.com",
+    "encrypted_password": "",
+    "email_confirmed_at": null,
+    "raw_user_meta_data": {},
+    "created_at": "2025-01-01T00:00:00.000Z"
+  }
+]

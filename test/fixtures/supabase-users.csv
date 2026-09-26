@@ -1,0 +1,2 @@
+id,email,encrypted_password,email_confirmed_at,raw_user_meta_data,created_at
+8f2c1f4e-0000-4000-8000-000000000003,grace@example.com,$2a$05$CCCCCCCCCCCCCCCCCCCCC.VGOzA784oUp/Z0DY336zx7pLYAy0lwK,2025-01-02 03:04:05+00,"{""name"": ""Grace Hopper""}",2025-01-01 00:00:00+00

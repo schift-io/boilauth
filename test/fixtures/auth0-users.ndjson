@@ -1,0 +1,2 @@
+{"_id":{"$oid":"60425dc43519d90068f82973"},"email":"linus@example.com","email_verified":true,"passwordHash":"$2b$04$cVWp4XaNU8a4v1uMRum2SO026BWLIoQMD/TXg5uZV.0P.uO8m3YEm","tenant":"example","connection":"Username-Password-Authentication"}
+{"_id":{"$oid":"60425dc43519d90068f82974"},"email":"md5user@example.com","email_verified":true,"passwordHash":"5f4dcc3b5aa765d61d8327deb882cf99","tenant":"example","connection":"Username-Password-Authentication"}
