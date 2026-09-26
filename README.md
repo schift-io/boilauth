@@ -106,6 +106,14 @@ schema generation step is not covered), Python. OAuth callbacks are exercised fo
 Google with a mocked token endpoint; the other providers are checked up to the
 authorize redirect.
 
+Better Auth 1.7.6 plugins the wizard does not offer yet (each needs a generated-project
+test before it becomes a choice): `username`, `phone-number`, `email-otp`, two-factor
+email/SMS OTP and backup codes, `anonymous`, `bearer`, `jwt`, API keys, `one-time-token`,
+`multi-session`, `captcha`, `one-tap`, `siwe`, `device-authorization`, `generic-oauth`
+(any OIDC provider), `last-login-method`, `custom-session`, `additional-fields`,
+`oauth-proxy`, and the separate passkey and SSO packages. You can still add any of them
+to the generated `src/auth.ts` by hand; it is a normal Better Auth config.
+
 ## What the presets are
 
 | Area | Default | Where |
