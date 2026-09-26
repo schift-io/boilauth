@@ -1,6 +1,7 @@
+  const attacker = h.nextIp();
   for (let i = 0; i < {{MAX_FAILURES}}; i++) {
-    assert.equal((await h.call(auth, "/sign-in/phone-number", { body: { phoneNumber: phone, password: `wrong-${i}-pw` } })).status, 401);
+    assert.equal((await h.call(auth, "/sign-in/phone-number", { body: { phoneNumber: phone, password: `wrong-${i}-pw` }, ip: attacker })).status, 401);
   }
-  const locked = await h.call(auth, "/sign-in/phone-number", { body: { phoneNumber: phone, password: h.PW } });
-  assert.equal(locked.status, 401, "the right password is refused while locked");
+  const locked = await h.call(auth, "/sign-in/phone-number", { body: { phoneNumber: phone, password: h.PW }, ip: attacker });
+  assert.equal(locked.status, 401, "the right password is refused from the locked source");
   assert.equal(locked.json.code, "INVALID_PHONE_NUMBER_OR_PASSWORD");

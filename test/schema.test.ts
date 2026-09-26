@@ -43,7 +43,7 @@ test("the default instance (core + admin) is exactly the union of its module fil
   assert.deepEqual(mods, ["core", "admin"]);
   const live = describeSchema(auth.boilauth.options).tables;
   assert.deepEqual(live, mergeShapes(...mods.map((m) => pinned(m).tables)));
-  assert.deepEqual(await installedModules(auth), { core: 1, admin: 1 });
+  assert.deepEqual(await installedModules(auth), { core: 2, admin: 1 });
 });
 
 test("every column type is SQLite-exportable", async () => {

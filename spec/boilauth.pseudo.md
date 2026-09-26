@@ -26,17 +26,21 @@ stored row = "$firebase-scrypt$v=1$k=<keyId>,r=<rounds>,m=<memCost>$<salt>$<sep>
 ```
 Signer key is never written to the DB. Vector: firebase/scrypt README sample.
 
-## [L1] Lockout — `src/plugin.ts` (before/after hooks on POST /sign-in/email)
+## [L1] Lockout — `src/plugin.ts` (before/after hooks on the password sign-in paths)
 
 ```
-before: user = find(email); if user.lockedUntil > now: spend one hash; return 401 INVALID_EMAIL_OR_PASSWORD
-after success: reset failedLoginCount, lockedUntil; [R1]
-after 401 for an existing user (not already locked):
-  n = failedLoginCount + 1
-  if n >= maxFailures(5): lockedUntil = now + lockMinutes(15); failedLoginCount = 0
-  else failedLoginCount = n
+source = sha256(ipKey(client ip) or "unknown")            # IPv6 per /64, see N1
+before: user = account named by the request (email / username / phone)
+        if count(boilauth-lock:user:source, window lockMinutes) >= maxFailures -> dummy hash, 401 as wrong password
+        if user.lockedUntil > now and source not in user.knownSignInSources (last knownSourceDays)
+                                                           -> dummy hash, 401 as wrong password
+after, success: user.failedLoginCount = 0, lockedUntil = null, knownSignInSources = [source, ...] (last 10)
+                reset boilauth-lock:user:source
+after, 401:     count boilauth-lock:user:source (conditional increment, rateLimit storage)
+                user.failedLoginCount += 1; at accountMaxFailures -> lockedUntil = now + lockMinutes, count 0
 ```
-Known limit: counter is read-modify-write (parallel failures may under-count). IP rate limit [L2] bounds bursts.
+An attacker's own IP is stopped after maxFailures; a distributed attack after accountMaxFailures, while the
+owner's known devices keep working (audit F4).
 
 ## [L3] Send limits — `boilauth/rate-limit` (src/modules/rate-limit.ts)
 Engine = Better Auth's limiter; the plugin adds rateLimit rules and is placed first in plugins so its

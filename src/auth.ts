@@ -21,7 +21,7 @@ import { CLIENT_IP_HEADER, withClientIp, type ClientIpConfig } from "./modules/c
 export const PRESETS = {
   minPasswordLength: 10,
   maxPasswordLength: 128,
-  lockout: { maxFailures: 5, lockMinutes: 15 } satisfies LockoutOptions,
+  lockout: { maxFailures: 5, lockMinutes: 15, accountMaxFailures: 20, knownSourceDays: 90 } satisfies LockoutOptions,
   session: {
     expiresIn: 60 * 60 * 24 * 7, // 7 days
     updateAge: 60 * 60 * 24, // rotate expiry at most once a day

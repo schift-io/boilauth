@@ -126,7 +126,7 @@ export function authFile(a: Answers): string {
   if (a.network.clientIp === "header") opts.push(`clientIp: { mode: "header", header: ${JSON.stringify(a.network.clientIpHeader)} }`);
   if (pw) {
     opts.push(`minPasswordLength: ${a.password.minLength}`);
-    opts.push(`lockout: { maxFailures: ${a.lockout.maxFailures}, lockMinutes: ${a.lockout.minutes} }`);
+    opts.push(`lockout: { maxFailures: ${a.lockout.maxFailures}, lockMinutes: ${a.lockout.minutes}, accountMaxFailures: ${a.lockout.accountMaxFailures} }`);
   }
   if (a.migration.sources.includes("firebase")) opts.push("firebaseKeys: d.firebaseKeys");
   if (username) opts.push("username: d.usernameRules");

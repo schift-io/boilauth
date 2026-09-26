@@ -34,7 +34,7 @@ export interface Answers {
   email: { verification: "required" | "optional" };
   linking: { mode: "verified_only" | "never" };
   password: { minLength: number; breachedCheck: "off" | "hibp" };
-  lockout: { maxFailures: number; minutes: number };
+  lockout: { maxFailures: number; minutes: number; accountMaxFailures: number };
   rateLimit: { signInPerMinute: number; sendPerIpPerHour: number; sendPerAccountPerHour: number; storage: "database" | "memory" };
   session: { days: number; revokeOnPasswordChange: boolean; devices: "multi" | "single"; bearer: boolean };
   mfa: { mode: "off" | "totp_optional" | "totp_required_admin"; backupCodes: number; emailOtp: boolean };
@@ -58,7 +58,7 @@ export const DEFAULT_ANSWERS: Answers = {
   email: { verification: "required" },
   linking: { mode: "verified_only" },
   password: { minLength: 10, breachedCheck: "off" },
-  lockout: { maxFailures: 5, minutes: 15 },
+  lockout: { maxFailures: 5, minutes: 15, accountMaxFailures: 20 },
   rateLimit: { signInPerMinute: 10, sendPerIpPerHour: 10, sendPerAccountPerHour: 5, storage: "database" },
   session: { days: 7, revokeOnPasswordChange: true, devices: "multi", bearer: false },
   mfa: { mode: "off", backupCodes: 10, emailOtp: false },
@@ -107,6 +107,8 @@ export function validateAnswers(a: Answers): string[] {
   int(a.password.minLength, 8, 64, "password.minLength");
   int(a.lockout.maxFailures, 0, 100, "lockout.maxFailures");
   int(a.lockout.minutes, 1, 1440, "lockout.minutes");
+  int(a.lockout.accountMaxFailures, 1, 100, "lockout.accountMaxFailures");
+  if (a.lockout.maxFailures > a.lockout.accountMaxFailures) errs.push("lockout.accountMaxFailures must be >= lockout.maxFailures");
   int(a.rateLimit.signInPerMinute, 1, 1000, "rateLimit.signInPerMinute");
   int(a.rateLimit.sendPerIpPerHour, 0, 1000, "rateLimit.sendPerIpPerHour");
   int(a.rateLimit.sendPerAccountPerHour, 0, 1000, "rateLimit.sendPerAccountPerHour");

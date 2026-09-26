@@ -153,8 +153,12 @@ export const QUESTIONS: Question[] = [
     ],
   },
   // G. Lockout, rate limit, sessions
-  { key: "lockout.maxFailures", group: "G. Lockout and sessions", type: "number", when: pw, message: "Lock after how many wrong passwords (0 = off)" },
+  { key: "lockout.maxFailures", group: "G. Lockout and sessions", type: "number", when: pw, message: "Lock one source (IP) out of an account after how many wrong passwords (0 = off)" },
   { key: "lockout.minutes", group: "G. Lockout and sessions", type: "number", when: (a) => pw(a) && a.lockout.maxFailures > 0, message: "Lock for how many minutes" },
+  {
+    key: "lockout.accountMaxFailures", group: "G. Lockout and sessions", type: "number", when: (a) => pw(a) && a.lockout.maxFailures > 0,
+    message: "Wrong passwords on one account from all sources before only its known devices may try (1..100)",
+  },
   { key: "rateLimit.signInPerMinute", group: "G. Lockout and sessions", type: "number", message: "Sign-in attempts per IP per minute" },
   {
     key: "rateLimit.sendPerIpPerHour", group: "G. Lockout and sessions", type: "number", when: sends,

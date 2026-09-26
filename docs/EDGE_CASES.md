@@ -101,8 +101,9 @@ Either way a verification mail is sent on sign-up. Import merges always need ver
 
 | Case | Policy key | Choices | Module | Spec |
 |---|---|---|---|---|
-| Consecutive wrong passwords | `lockout.maxFailures` | number, **5** (0 = off) | core | L1 |
+| Wrong passwords from one source (IP, /64 for IPv6) before that source is locked for this account | `lockout.maxFailures` | number, **5** (0 = off) | core | L1 |
 | Lock duration | `lockout.minutes` | number, **15** | core | L1 |
+| Wrong passwords on one account from all sources before only known devices may try | `lockout.accountMaxFailures` | number 1..100, **20** | core | L1 |
 | Sign-in attempts per IP | `rateLimit.signInPerMinute` | number, **10** | core | L2 |
 | Mail/SMS sends per IP (only with a send endpoint) | `rateLimit.sendPerIpPerHour` | number 0..1000, **10** per hour per send endpoint (0 = Better Auth's per-minute rules) | `boilauth/rate-limit` | L3 |
 | Mail/SMS sends per address (only with a send endpoint) | `rateLimit.sendPerAccountPerHour` | number 0..1000, **5** per hour per email or phone number, from any IP (0 = off) | `boilauth/rate-limit` | L3 |
@@ -111,6 +112,12 @@ Either way a verification mail is sent on sign-up. Import merges always need ver
 | Password change | `session.revokeOnPasswordChange` | **yes** (other sessions end) / no | `boilauth/sessions` | S2 |
 | Devices | `session.devices` | **`multi`** / `single` (a new sign-in ends the other sessions) | `boilauth/sessions` | S3 |
 | Mobile and API clients | `session.bearer` | yes / **no** (also accept `Authorization: Bearer <token>`; sign-in answers with `set-auth-token`) | better-auth `bearer` | S4 |
+
+The lockout has two layers since 0.3.0 (audit F4: a plain account lock after 5 wrong passwords let
+anyone lock the owner out, forever, from any IPs). One source is locked for this account after
+`maxFailures`; the account refuses sources without a successful sign-in in the last 90 days after
+`accountMaxFailures` (ASVS 2.2.1: at most 100 failures per hour per account). A success clears both
+for that source and records it as known (hashed, `user.knownSignInSources`, last 10).
 
 Send endpoints are `/request-password-reset`, `/send-verification-email`, `/sign-in/magic-link`,
 `/email-otp/send-verification-otp`, `/email-otp/request-password-reset`, `/forget-password/email-otp`,
@@ -181,7 +188,7 @@ service reading the database knows the shape without guessing.
 
 | Module | Enabled by | File |
 |---|---|---|
-| `core` | always | `schema/core.v1.json` |
+| `core` | always | `schema/core.v2.json` (v2 adds `user.knownSignInSources`; v1 kept for reference) |
 | `admin` | `roles.mode` in admin, custom, organizations | `schema/admin.v1.json` |
 | `two-factor` | `mfa.mode` not off | `schema/two-factor.v1.json` |
 | `mfa-admin` | `mfa.mode = totp_required_admin` | `schema/mfa-admin.v1.json` |

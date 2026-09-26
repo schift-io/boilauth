@@ -2,12 +2,17 @@
  * boilauth Better Auth plugin — the part of the "safe presets" that Better
  * Auth does not do on its own:
  *
- * 1. Per-account lockout. Better Auth's rate limiter is per IP+path, so a
- *    distributed guess attack against one account is not slowed by it. After
- *    `maxFailures` consecutive wrong passwords the account is locked for
- *    `lockMinutes`. While locked, sign-in answers exactly like a wrong
- *    password (401 INVALID_EMAIL_OR_PASSWORD) and the password is not checked,
- *    so the lock does not reveal whether the email exists.
+ * 1. Lockout, in two layers (audit F4: a plain per-account lock let anyone
+ *    lock the owner out forever with 5 wrong passwords):
+ *    - per source: `maxFailures` wrong passwords for one account from one
+ *      client IP (/64 for IPv6) lock that source for `lockMinutes`;
+ *    - per account: `accountMaxFailures` wrong passwords from all sources
+ *      lock the account for `lockMinutes` against sources that have not
+ *      signed in to it successfully in the last `knownSourceDays`; the owner's
+ *      usual devices keep working.
+ *    While locked, sign-in answers exactly like a wrong password (401
+ *    INVALID_EMAIL_OR_PASSWORD) and the password is not checked, so the lock
+ *    does not reveal whether the account exists.
  * 2. Transparent rehash. After a successful email/password sign-in, if the
  *    stored hash is not argon2id at the current preset (imported bcrypt or
  *    Firebase scrypt, or weaker argon2 params) it is replaced with a fresh
@@ -16,16 +21,26 @@
  * Both cover POST /sign-in/email and, when on, POST /sign-in/username (the
  * account is found by the normalized username) and POST /sign-in/phone-number.
  *
- * Known limit: the failure counter is read-modify-write, so N parallel wrong
- * attempts can count as fewer than N. The IP rate limiter bounds the burst.
+ * The per-source counter uses the rateLimit storage's conditional increment.
+ * The account-wide counter is read-modify-write on the user row, so N parallel
+ * wrong attempts can count as fewer than N; the per-source lock and the IP rate
+ * limiter bound the burst.
  */
 import type { BetterAuthPlugin } from "better-auth";
 import { APIError, createAuthMiddleware } from "better-auth/api";
+import { createHash } from "node:crypto";
 import type { PasswordHasher } from "./hash/index.js";
+import { clientIpKeyOf } from "./modules/client-ip.js";
+import { consume, peek, reset } from "./modules/counter-store.js";
 
 export interface LockoutOptions {
+  /** Wrong passwords per account per source before that source is locked. 0 turns lockout off. */
   maxFailures: number;
   lockMinutes: number;
+  /** Wrong passwords per account from all sources before unknown sources are locked out. */
+  accountMaxFailures: number;
+  /** A source counts as known this long after a successful sign-in. */
+  knownSourceDays: number;
 }
 
 export interface BoilauthPluginOptions {
@@ -48,7 +63,28 @@ function invalidCredentials(path: string): APIError {
   return APIError.from("UNAUTHORIZED", { code: "INVALID_EMAIL_OR_PASSWORD", message: "Invalid email or password" });
 }
 
-type LockFields = { id: string; failedLoginCount?: number | null; lockedUntil?: Date | null };
+type LockFields = { id: string; failedLoginCount?: number | null; lockedUntil?: Date | null; knownSignInSources?: string | null };
+
+type Known = { s: string; t: number };
+const MAX_KNOWN = 10;
+
+function sourceOf(ctx: any): string {
+  const ip = clientIpKeyOf(ctx.headers ?? ctx.request?.headers) ?? "unknown";
+  return createHash("sha256").update(ip).digest("hex").slice(0, 32);
+}
+
+function knownList(raw: string | null | undefined): Known[] {
+  try {
+    const v = JSON.parse(raw ?? "[]");
+    return Array.isArray(v) ? v.filter((k) => typeof k?.s === "string" && typeof k?.t === "number") : [];
+  } catch {
+    return [];
+  }
+}
+
+function storageOf(ctx: any): "memory" | "database" {
+  return ctx.context.rateLimit?.storage === "memory" ? "memory" : "database";
+}
 
 export function boilauthPlugin(opts: BoilauthPluginOptions) {
   const now = opts.now ?? (() => new Date());
@@ -69,13 +105,19 @@ export function boilauthPlugin(opts: BoilauthPluginOptions) {
     if (!email) return null;
     return ((await ctx.context.internalAdapter.findUserByEmail(email))?.user as LockFields | undefined) ?? null;
   };
+  const lockKey = (userId: string, source: string) => `boilauth-lock:${userId}:${source}`;
+  const lockWindow = opts.lockout.lockMinutes * 60;
   return {
     id: "boilauth",
+    // Never matches: tells Better Auth's pruning that rateLimit rows live as long as a lock.
+    rateLimit: [{ pathMatcher: () => false, window: Math.max(60, lockWindow), max: 1 }],
     schema: {
       user: {
         fields: {
           failedLoginCount: { type: "number", required: false, defaultValue: 0, input: false, returned: false },
           lockedUntil: { type: "date", required: false, input: false, returned: false },
+          // Hashed client sources (IP, /64 for IPv6) with a recent successful sign-in, JSON.
+          knownSignInSources: { type: "string", required: false, input: false, returned: false },
         },
       },
       // Which boilauth schema modules (and versions) this database carries.
@@ -104,9 +146,17 @@ export function boilauthPlugin(opts: BoilauthPluginOptions) {
           matcher: (ctx) => isSignIn(ctx.path),
           handler: createAuthMiddleware(async (ctx) => {
             if (opts.lockout.maxFailures <= 0) return;
-            const lockedUntil = (await target(ctx))?.lockedUntil;
-            if (lockedUntil && new Date(lockedUntil).getTime() > now().getTime()) {
-              // Spend comparable time so a locked account is not a timing oracle.
+            const u = await target(ctx);
+            if (!u) return;
+            const t = now().getTime();
+            const source = sourceOf(ctx);
+            const perSource = await peek(storageOf(ctx), ctx.context.adapter, lockKey(u.id, source), lockWindow, t);
+            const sourceLocked = (perSource?.count ?? 0) >= opts.lockout.maxFailures;
+            const accountLocked =
+              Boolean(u.lockedUntil && new Date(u.lockedUntil).getTime() > t) &&
+              !knownList(u.knownSignInSources).some((k) => k.s === source && t - k.t < opts.lockout.knownSourceDays * 86_400_000);
+            if (sourceLocked || accountLocked) {
+              // Spend comparable time so a lock is not a timing oracle.
               await opts.hasher.hash(String(ctx.body?.password ?? ""));
               throw invalidCredentials(ctx.path);
             }
@@ -124,10 +174,15 @@ export function boilauthPlugin(opts: BoilauthPluginOptions) {
             if (session) {
               const userId = session.user.id;
               // Read the raw row: these fields are `returned: false`, so they are absent from session.user.
-              const u = ((await ia.findUserById(userId)) ?? {}) as { failedLoginCount?: number | null; lockedUntil?: Date | null };
-              if (u.failedLoginCount || u.lockedUntil) {
-                await ia.updateUser(userId, { failedLoginCount: 0, lockedUntil: null });
-              }
+              const u = ((await ia.findUserById(userId)) ?? {}) as LockFields;
+              const t = now().getTime();
+              const source = sourceOf(ctx);
+              const known = [
+                { s: source, t },
+                ...knownList(u.knownSignInSources).filter((k) => k.s !== source && t - k.t < opts.lockout.knownSourceDays * 86_400_000),
+              ].slice(0, MAX_KNOWN);
+              await ia.updateUser(userId, { failedLoginCount: 0, lockedUntil: null, knownSignInSources: JSON.stringify(known) });
+              if (opts.lockout.maxFailures > 0) await reset(storageOf(ctx), ctx.context.adapter, lockKey(userId, source));
               const account = await ia.findCredentialAccount(userId);
               if (account?.password && password && opts.hasher.needsRehash(account.password)) {
                 await ia.updateAccount(account.id, { password: await opts.hasher.hash(password) });
@@ -141,13 +196,15 @@ export function boilauthPlugin(opts: BoilauthPluginOptions) {
             if (!wasBadPassword || opts.lockout.maxFailures <= 0) return;
             const u = await target(ctx);
             if (!u) return;
+            const t = now().getTime();
+            await consume(storageOf(ctx), ctx.context.adapter, lockKey(u.id, sourceOf(ctx)), opts.lockout.maxFailures, lockWindow, t);
             const lockedUntil = u.lockedUntil ? new Date(u.lockedUntil) : null;
-            if (lockedUntil && lockedUntil.getTime() > now().getTime()) return; // already locked
+            if (lockedUntil && lockedUntil.getTime() > t) return; // account already locked
             const failures = (u.failedLoginCount ?? 0) + 1;
-            const lock = failures >= opts.lockout.maxFailures;
+            const lock = failures >= opts.lockout.accountMaxFailures;
             await ia.updateUser(u.id, {
               failedLoginCount: lock ? 0 : failures,
-              lockedUntil: lock ? new Date(now().getTime() + opts.lockout.lockMinutes * 60_000) : null,
+              lockedUntil: lock ? new Date(t + opts.lockout.lockMinutes * 60_000) : null,
             });
           }),
         },

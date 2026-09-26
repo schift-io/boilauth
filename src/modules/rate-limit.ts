@@ -17,6 +17,7 @@
  */
 import { createHash } from "node:crypto";
 import type { BetterAuthPlugin } from "better-auth";
+import { consumeDatabase, consumeMemory } from "./counter-store.js";
 
 /** Send endpoint -> body field that names the destination. */
 export const SEND_PATHS: Record<string, "email" | "phoneNumber"> = {
@@ -50,62 +51,6 @@ export function normaliseDestination(field: "email" | "phoneNumber", raw: unknow
   if (field === "phoneNumber") return /^\+[1-9]\d{7,14}$/.test(raw) ? raw : null;
   const v = raw.trim().toLowerCase();
   return v ? v : null;
-}
-
-type Decision = { allowed: boolean; retryAfter: number };
-const memory = new Map<string, { count: number; lastRequest: number }>();
-
-async function consumeMemory(key: string, max: number, windowS: number, now: number): Promise<Decision> {
-  const row = memory.get(key);
-  if (!row || now - row.lastRequest >= windowS * 1000) {
-    memory.set(key, { count: 1, lastRequest: now });
-    return { allowed: true, retryAfter: 0 };
-  }
-  if (row.count >= max) return { allowed: false, retryAfter: Math.ceil((row.lastRequest + windowS * 1000 - now) / 1000) };
-  memory.set(key, { count: row.count + 1, lastRequest: now });
-  return { allowed: true, retryAfter: 0 };
-}
-
-async function consumeDatabase(db: any, key: string, max: number, windowS: number, now: number, depth = 0): Promise<Decision> {
-  if (depth > 5) return { allowed: false, retryAfter: windowS };
-  const read = async () => {
-    const [row] = await db.findMany({ model: "rateLimit", where: [{ field: "key", value: key }] });
-    if (row && typeof row.lastRequest === "bigint") row.lastRequest = Number(row.lastRequest);
-    return row as { count: number; lastRequest: number } | undefined;
-  };
-  const row = await read();
-  if (!row) {
-    try {
-      await db.create({ model: "rateLimit", data: { key, count: 1, lastRequest: now } });
-      return { allowed: true, retryAfter: 0 };
-    } catch {
-      return consumeDatabase(db, key, max, windowS, now, depth + 1); // another request created it first
-    }
-  }
-  const windowMs = windowS * 1000;
-  if (now - row.lastRequest >= windowMs) {
-    const reset = await db.incrementOne({
-      model: "rateLimit",
-      where: [{ field: "key", value: key }, { field: "lastRequest", operator: "lte", value: row.lastRequest }],
-      increment: {},
-      set: { count: 1, lastRequest: now },
-    });
-    return reset ? { allowed: true, retryAfter: 0 } : consumeDatabase(db, key, max, windowS, now, depth + 1);
-  }
-  // Counts up only while under max inside the window; the window start stays put.
-  const ok = await db.incrementOne({
-    model: "rateLimit",
-    where: [
-      { field: "key", value: key },
-      { field: "lastRequest", operator: "gt", value: now - windowMs },
-      { field: "count", operator: "lt", value: max },
-    ],
-    increment: { count: 1 },
-  });
-  if (ok) return { allowed: true, retryAfter: 0 };
-  const fresh = await read();
-  if (!fresh || now - fresh.lastRequest >= windowMs) return consumeDatabase(db, key, max, windowS, now, depth + 1);
-  return { allowed: false, retryAfter: Math.ceil((fresh.lastRequest + windowMs - now) / 1000) };
 }
 
 function tooMany(retryAfter: number, max: number, windowS: number): Response {

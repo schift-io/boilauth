@@ -1,0 +1,192 @@
+{
+  "module": "core",
+  "version": 2,
+  "tables": {
+    "account": {
+      "accessToken": {
+        "type": "string",
+        "required": false
+      },
+      "accessTokenExpiresAt": {
+        "type": "date",
+        "required": false
+      },
+      "accountId": {
+        "type": "string",
+        "required": true
+      },
+      "createdAt": {
+        "type": "date",
+        "required": true
+      },
+      "idToken": {
+        "type": "string",
+        "required": false
+      },
+      "password": {
+        "type": "string",
+        "required": false
+      },
+      "providerId": {
+        "type": "string",
+        "required": true
+      },
+      "refreshToken": {
+        "type": "string",
+        "required": false
+      },
+      "refreshTokenExpiresAt": {
+        "type": "date",
+        "required": false
+      },
+      "scope": {
+        "type": "string",
+        "required": false
+      },
+      "updatedAt": {
+        "type": "date",
+        "required": true
+      },
+      "userId": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "boilauthModule": {
+      "installedAt": {
+        "type": "date",
+        "required": true
+      },
+      "name": {
+        "type": "string",
+        "required": true
+      },
+      "version": {
+        "type": "number",
+        "required": true
+      }
+    },
+    "importedIdentity": {
+      "createdAt": {
+        "type": "date",
+        "required": true
+      },
+      "source": {
+        "type": "string",
+        "required": true
+      },
+      "sourceId": {
+        "type": "string",
+        "required": true
+      },
+      "userId": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "rateLimit": {
+      "count": {
+        "type": "number",
+        "required": true
+      },
+      "key": {
+        "type": "string",
+        "required": true
+      },
+      "lastRequest": {
+        "type": "number",
+        "required": true
+      }
+    },
+    "session": {
+      "createdAt": {
+        "type": "date",
+        "required": true
+      },
+      "expiresAt": {
+        "type": "date",
+        "required": true
+      },
+      "ipAddress": {
+        "type": "string",
+        "required": false
+      },
+      "token": {
+        "type": "string",
+        "required": true
+      },
+      "updatedAt": {
+        "type": "date",
+        "required": true
+      },
+      "userAgent": {
+        "type": "string",
+        "required": false
+      },
+      "userId": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "user": {
+      "createdAt": {
+        "type": "date",
+        "required": true
+      },
+      "email": {
+        "type": "string",
+        "required": true
+      },
+      "emailVerified": {
+        "type": "boolean",
+        "required": true
+      },
+      "failedLoginCount": {
+        "type": "number",
+        "required": false
+      },
+      "image": {
+        "type": "string",
+        "required": false
+      },
+      "knownSignInSources": {
+        "type": "string",
+        "required": false
+      },
+      "lockedUntil": {
+        "type": "date",
+        "required": false
+      },
+      "name": {
+        "type": "string",
+        "required": true
+      },
+      "updatedAt": {
+        "type": "date",
+        "required": true
+      }
+    },
+    "verification": {
+      "createdAt": {
+        "type": "date",
+        "required": true
+      },
+      "expiresAt": {
+        "type": "date",
+        "required": true
+      },
+      "identifier": {
+        "type": "string",
+        "required": true
+      },
+      "updatedAt": {
+        "type": "date",
+        "required": true
+      },
+      "value": {
+        "type": "string",
+        "required": true
+      }
+    }
+  }
+}

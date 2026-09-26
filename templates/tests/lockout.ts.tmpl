@@ -1,17 +1,28 @@
-test("{{MAX_FAILURES}} wrong passwords lock the account for {{LOCK_MIN}} minutes, with the same 401", { skip: h.SKIP }, async () => {
+test("{{MAX_FAILURES}} wrong passwords from one source lock that source for {{LOCK_MIN}} minutes, with the same 401", { skip: h.SKIP }, async () => {
   const auth = await h.makeAuth();
   const { email } = await h.newUser(auth, "lock");
+  const attacker = h.nextIp();
   for (let i = 0; i < {{MAX_FAILURES}}; i++) {
-    assert.equal((await h.call(auth, "/sign-in/email", { body: { email, password: `wrong-${i}-pw` } })).status, 401);
+    assert.equal((await h.call(auth, "/sign-in/email", { body: { email, password: `wrong-${i}-pw` }, ip: attacker })).status, 401);
   }
-  const locked = await h.call(auth, "/sign-in/email", { body: { email, password: h.PW } });
-  assert.equal(locked.status, 401, "the right password is refused while locked");
+  const locked = await h.call(auth, "/sign-in/email", { body: { email, password: h.PW }, ip: attacker });
+  assert.equal(locked.status, 401, "the right password is refused from the locked source");
   assert.equal(locked.json.code, "INVALID_EMAIL_OR_PASSWORD");
+  assert.equal((await h.call(auth, "/sign-in/email", { body: { email, password: h.PW } })).status, 200, "the owner elsewhere is not locked out");
+});
+
+test("{{ACCOUNT_MAX}} wrong passwords from many sources: unknown sources are locked out, the owner's known device is not", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const { email } = await h.newUser(auth, "acct");
+  const home = h.nextIp();
+  assert.equal((await h.call(auth, "/sign-in/email", { body: { email, password: h.PW }, ip: home })).status, 200);
+  for (let i = 0; i < {{ACCOUNT_MAX}}; i++) await h.call(auth, "/sign-in/email", { body: { email, password: `wrong-${i}-pw` } });
+  const stranger = await h.call(auth, "/sign-in/email", { body: { email, password: h.PW } });
+  assert.equal(stranger.status, 401, "an unknown source is refused while the account is locked");
+  assert.equal(stranger.json.code, "INVALID_EMAIL_OR_PASSWORD");
+  assert.equal((await h.call(auth, "/sign-in/email", { body: { email, password: h.PW }, ip: home })).status, 200, "the known device still gets in");
 
   const ctx = await auth.$context;
   const row = (await ctx.internalAdapter.findUserByEmail(email))!.user as unknown as { id: string; lockedUntil: Date };
-  const minutes = (new Date(row.lockedUntil).getTime() - Date.now()) / 60000;
-  assert.ok(minutes > {{LOCK_MIN}} - 1 && minutes <= {{LOCK_MIN}}, `locked for ${minutes} min`);
-  await ctx.internalAdapter.updateUser(row.id, { lockedUntil: new Date(Date.now() - 1000) });
-  assert.equal((await h.call(auth, "/sign-in/email", { body: { email, password: h.PW } })).status, 200, "unlocked after the window");
+  assert.equal(row.lockedUntil, null, "a success clears the account lock");
 });

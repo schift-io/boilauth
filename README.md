@@ -270,7 +270,7 @@ tables or columns is its own module with a pinned file:
 
 | Module | On when | File |
 |---|---|---|
-| core | always | [`schema/core.v1.json`](schema/core.v1.json) |
+| core | always | [`schema/core.v2.json`](schema/core.v2.json) (v2 adds `user.knownSignInSources`) |
 | admin | roles is admin, custom or organizations | [`schema/admin.v1.json`](schema/admin.v1.json) |
 | two-factor | mfa is not off | [`schema/two-factor.v1.json`](schema/two-factor.v1.json) |
 | mfa-admin | mfa = totp_required_admin | [`schema/mfa-admin.v1.json`](schema/mfa-admin.v1.json) |

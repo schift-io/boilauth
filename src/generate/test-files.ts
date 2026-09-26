@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import type { Answers } from "../wizard/answers.js";
 import { enabledModulesFor } from "./modules.js";
 import { needsSendLimits, sendEndpoint } from "./auth-file.js";
+import { MODULE_VERSIONS } from "../schema.js";
 
 const TPL = new URL("../../templates/tests/", import.meta.url);
 
@@ -156,7 +157,9 @@ export function testFile(a: Answers): string {
       }),
     );
     blocks.push(clientIpBlock(a));
-    if (a.lockout.maxFailures > 0) blocks.push(tpl("lockout", { MAX_FAILURES: a.lockout.maxFailures, LOCK_MIN: a.lockout.minutes }));
+    if (a.lockout.maxFailures > 0) {
+      blocks.push(tpl("lockout", { MAX_FAILURES: a.lockout.maxFailures, LOCK_MIN: a.lockout.minutes, ACCOUNT_MAX: a.lockout.accountMaxFailures }));
+    }
     if (a.password.breachedCheck === "hibp") blocks.push(tpl("hibp"));
     for (const s of a.migration.sources) blocks.push(tpl(`migration-${s}`));
     if (a.signIn.username) {
@@ -246,7 +249,7 @@ export function testFile(a: Answers): string {
   blocks.push(rolesBlock(a));
   blocks.push(...deletionBlocks(a));
   if (a.deletion.export) blocks.push(tpl("export"));
-  const modules = Object.fromEntries(enabledModulesFor(a).map((m) => [m, 1]));
+  const modules = Object.fromEntries(enabledModulesFor(a).map((m) => [m, MODULE_VERSIONS[m]]));
   blocks.push(tpl("schema", { MODULES: JSON.stringify(modules), MODULES_LABEL: Object.keys(modules).join(", ") }));
 
   const imports = [

@@ -17,11 +17,11 @@ import { getMigrations } from "better-auth/db/migration";
 import type { BetterAuthOptions } from "better-auth";
 
 /** Version of the core module. Kept for 0.1 callers. */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /** Module -> contract version. Bump a module's number when its delta file changes. */
 export const MODULE_VERSIONS = {
-  core: 1,
+  core: 2, // v2: user.knownSignInSources (per-source lockout, 0.3.0)
   admin: 1,
   "two-factor": 1,
   "mfa-admin": 1,

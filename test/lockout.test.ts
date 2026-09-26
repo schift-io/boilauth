@@ -9,33 +9,58 @@ async function withUser(now: () => Date) {
   return auth;
 }
 
-test("5 wrong passwords lock the account; the right password is refused while locked, with the same 401", async () => {
+test("5 wrong passwords from one source lock that source; the right password is refused there, with the same 401", async () => {
   let t = new Date("2026-01-01T00:00:00Z").getTime();
   const auth = await withUser(() => new Date(t));
+  const attacker = "198.51.100.66";
   for (let i = 0; i < PRESETS.lockout.maxFailures; i++) {
-    const r = await signIn(auth, "lock@example.com", `wrong-${i}`);
+    const r = await signIn(auth, "lock@example.com", `wrong-${i}`, attacker);
     assert.equal(r.status, 401);
   }
-  const locked = await signIn(auth, "lock@example.com", "right-password-1");
-  assert.equal(locked.status, 401, "locked account refuses the correct password");
+  const locked = await signIn(auth, "lock@example.com", "right-password-1", attacker);
+  assert.equal(locked.status, 401, "locked source refuses the correct password");
   assert.equal(locked.body.code, "INVALID_EMAIL_OR_PASSWORD", "lock is indistinguishable from a wrong password");
 
   t += (PRESETS.lockout.lockMinutes - 1) * 60_000;
-  assert.equal((await signIn(auth, "lock@example.com", "right-password-1")).status, 401, "still locked at 14 min");
+  assert.equal((await signIn(auth, "lock@example.com", "right-password-1", attacker)).status, 401, "still locked at 14 min");
 
   t += 2 * 60_000;
-  assert.equal((await signIn(auth, "lock@example.com", "right-password-1")).status, 200, "unlocked after 15 min");
+  assert.equal((await signIn(auth, "lock@example.com", "right-password-1", attacker)).status, 200, "unlocked after 15 min");
+});
+
+test("F4: wrong passwords from other IPs do not lock the owner out", async () => {
+  const t = new Date("2026-01-01T00:00:00Z");
+  const auth = await withUser(() => t);
+  for (let i = 0; i < PRESETS.lockout.maxFailures; i++) {
+    assert.equal((await signIn(auth, "lock@example.com", `wrong-${i}`, `198.51.100.${10 + i}`)).status, 401);
+  }
+  assert.equal((await signIn(auth, "lock@example.com", "right-password-1", "203.0.113.5")).status, 200, "the owner is not locked out");
+});
+
+test("F4: a distributed guess attack locks the account for unknown sources; the owner's known source still gets in", async () => {
+  const t = new Date("2026-01-01T00:00:00Z");
+  const auth = await withUser(() => t);
+  const home = "203.0.113.50";
+  assert.equal((await signIn(auth, "lock@example.com", "right-password-1", home)).status, 200, "owner signs in once from home");
+  for (let i = 0; i < PRESETS.lockout.accountMaxFailures; i++) {
+    await signIn(auth, "lock@example.com", `wrong-${i}`, `198.51.${100 + (i >> 8)}.${i & 255}`);
+  }
+  const fresh = await signIn(auth, "lock@example.com", "right-password-1", "192.0.2.200");
+  assert.equal(fresh.status, 401, "an unknown source is refused even with the right password");
+  assert.equal(fresh.body.code, "INVALID_EMAIL_OR_PASSWORD");
+  assert.equal((await signIn(auth, "lock@example.com", "right-password-1", home)).status, 200, "the owner's known source still works");
 });
 
 test("a success resets the failure counter", async () => {
   const t = new Date("2026-01-01T00:00:00Z");
   const auth = await withUser(() => t);
-  for (let i = 0; i < PRESETS.lockout.maxFailures - 1; i++) await signIn(auth, "lock@example.com", "nope");
-  const ok = await signIn(auth, "lock@example.com", "right-password-1");
+  const ip = "203.0.113.77";
+  for (let i = 0; i < PRESETS.lockout.maxFailures - 1; i++) await signIn(auth, "lock@example.com", "nope", ip);
+  const ok = await signIn(auth, "lock@example.com", "right-password-1", ip);
   assert.equal(ok.status, 200);
-  assert.ok(!("failedLoginCount" in ok.body.user) && !("lockedUntil" in ok.body.user), "lockout state not exposed");
-  for (let i = 0; i < PRESETS.lockout.maxFailures - 1; i++) await signIn(auth, "lock@example.com", "nope");
-  assert.equal((await signIn(auth, "lock@example.com", "right-password-1")).status, 200, "counter had been reset");
+  for (const k of ["failedLoginCount", "lockedUntil", "knownSignInSources"]) assert.ok(!(k in ok.body.user), `${k} not exposed`);
+  for (let i = 0; i < PRESETS.lockout.maxFailures - 1; i++) await signIn(auth, "lock@example.com", "nope", ip);
+  assert.equal((await signIn(auth, "lock@example.com", "right-password-1", ip)).status, 200, "counter had been reset");
 });
 
 test("per-IP rate limit on /sign-in/email: 10 per minute, 11th gets 429; another IP is unaffected", async () => {
