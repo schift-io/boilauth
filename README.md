@@ -71,23 +71,31 @@ they set the defaults of the policy questions, which are all still asked.
 | # | Policy key | Choices |
 |---|---|---|
 | A | `runtime.database` | **sqlite** / postgres |
+| A | `network.clientIp` | **socket** / proxy / header (which client IP per-IP limits and lockout count) |
+| A | `network.trustedProxies` | your proxies' IPs/CIDRs (asked with proxy) |
+| A | `network.clientIpHeader` | **cf-connecting-ip** (asked with header) |
 | B | `signIn.emailPassword` | **yes** / no |
 | B | `signIn.username` | yes / **no** (rules in `boilauth.username.yaml`, see below) |
 | B | `signIn.magicLink` | yes / **no** |
 | B | `signIn.emailOtp` | yes / **no** (6-digit mailed code, 5 min, 3 tries, stored hashed) |
 | B | `signIn.phone` | yes / **no** (SMS codes and number + password; your sender in `src/sms.ts`) |
+| B | `phone.allowedCountries` | calling codes that may receive SMS (**none** = every country; asked with phone) |
 | B | `signIn.oauth` | google, github, apple, kakao, naver (**none**) |
 | C | `migration.firebase.keyId`, `.saltSeparator`, `.rounds`, `.memCost` | **firebase**, **Bw==**, **8**, **14** (asked only with firebase) |
 | D | `email.verification` | **required** / optional |
 | E | `linking.mode` | **verified_only** / never (asked only with OAuth) |
-| F | `password.minLength` | **10** (8..64) |
+| F | `password.minLength` | **12** (8..64) |
 | F | `password.breachedCheck` | **off** / hibp |
-| G | `lockout.maxFailures`, `lockout.minutes` | **5**, **15** (0 = off) |
+| G | `lockout.maxFailures`, `lockout.minutes` | **5**, **15** per source (IP) and account (0 = off) |
+| G | `lockout.accountMaxFailures` | **20** from all sources, then only known devices may try |
 | G | `rateLimit.signInPerMinute` | **10** |
 | G | `rateLimit.sendPerIpPerHour` | **10** per send endpoint (0 = Better Auth's per-minute rules) |
 | G | `rateLimit.sendPerAccountPerHour` | **5** per email or phone number, any IP (0 = off) |
+| G | `rateLimit.smsPerHour` | **100** SMS per hour site-wide (0 = no cap; asked with phone) |
+| G | `rateLimit.usernameCheckPerIpPerHour` | **30** (0 = endpoint removed; asked with username) |
 | G | `rateLimit.storage` | **database** / memory |
 | G | `session.days` | **7** (1..90) |
+| G | `session.absoluteDays` | **30** (sign in again after this, however active) |
 | G | `session.revokeOnPasswordChange` | **yes** / no |
 | G | `session.devices` | **multi** / single |
 | G | `session.bearer` | yes / **no** (also accept `Authorization: Bearer`; sign-in sends `set-auth-token`) |
@@ -98,6 +106,9 @@ they set the defaults of the policy questions, which are all still asked.
 | H | `mfa.mode` | **off** / totp_optional / totp_required_admin (the last needs roles) |
 | H | `mfa.backupCodes` | **10** (5..20, each usable once) |
 | H | `mfa.emailOtp` | yes / **no** (a mailed code as the second step; admin access still needs TOTP or a backup code) |
+| H | `mfa.allSignIns` | **yes** / no (the second factor after magic links, codes and OAuth too) |
+| K | `notify.securityChanges` | **yes** / no (mail on password or two-factor change and on an account lock) |
+| K | `notify.newDevice` | yes / **no** (mail on sign-in from a device not seen in 90 days) |
 | J | `deletion.mode` | **hard** / soft |
 | J | `deletion.guard` | yes / **no** (your veto in `src/deletion-guard.ts`, e.g. while a paid subscription is active; 409 with your code) |
 | J | `deletion.lastOrgOwner` | **block** / transfer_to_oldest_admin (asked with organizations) |
@@ -295,14 +306,44 @@ A test fails if any module's live columns drift from its file.
 - You run it. Your database holds the users, hashes and sessions.
 - Imported hashes are only as strong as the source until the user's first login
   here; after that they are argon2id. Firebase signer keys stay in your config/env.
-- Lockout and rate limit are both on by default; lockout does not reveal whether
-  an email exists. Known limit: the lockout counter is read-modify-write, so a burst
-  of parallel wrong guesses can count as fewer; the IP rate limit bounds that burst.
+- Every per-IP control counts the client IP boilauth resolves itself
+  (`network.clientIp`): the socket address by default, forwarded headers only from
+  your listed proxies or one platform header. A client-sent `X-Forwarded-For` changes
+  nothing, IPv6 counts per /64, and in production a request without a resolvable IP is
+  refused (500 `CLIENT_IP_UNAVAILABLE`) instead of sharing one bucket with everyone.
+- Lockout has two layers: 5 wrong passwords from one source lock that source for the
+  account; 20 from all sources lock the account against sources that have not signed in
+  to it in the last 90 days, while the owner's known devices keep working. A lock answers
+  like a wrong password. The account-wide counter is read-modify-write, so a burst of
+  parallel guesses can count as fewer; the per-source lock and the IP rate limit bound it.
+- Passwords: minimum 12 characters by default (ASVS 2.1.1); the breached-password check
+  (Have I Been Pwned range API) is opt-in because it makes a network call.
+- Sessions end 30 days after sign-in however active they are (`session.absoluteDays`).
+- A user with two-factor on passes it after every first factor: password, magic link,
+  email or SMS code, OAuth (`mfa.allSignIns`, default on).
+- The user is mailed when their password or two-factor setting changes and when many
+  wrong passwords lock their account (`notify.securityChanges`); optionally on sign-in
+  from a new device (`notify.newDevice`).
+- Account enumeration: sign-in answers and timings are the same for existing and missing
+  accounts on email, username and phone; a duplicate sign-up answers like a new one; the
+  username availability check is limited per IP (or removed).
 - Mail and SMS sends (reset, verification, magic link, email and SMS codes) are limited per IP
   and per destination address (`boilauth/rate-limit`, default 10 per IP and 5 per address per
   hour), so one address cannot be flooded from many IPs. Trade-off: anyone can use up an
   address's hourly quota, which delays that user's own reset mail for up to an hour. Every 429
   carries `Retry-After`. Counters live in the database by default, so every instance shares them.
+  SMS also has a site-wide budget per hour (`rateLimit.smsPerHour`, default 100) and an optional
+  country allowlist (`phone.allowedCountries`); phone numbers are E.164 without a trunk 0.
+- Admin removal (`/admin/remove-user`) meets the same deletion veto, organization rule and
+  records policy as self-service deletion.
+- Known limits, not fixed in 0.3.0:
+  - the session cookie is `__Secure-` prefixed, not `__Host-` (ASVS 3.4.4): Better Auth 1.7.6
+    has no `__Host-` option and imitating it through the cookie name is untested;
+  - SMS codes are stored as plain text for their 5 minutes (Better Auth's phoneNumber plugin
+    has no hashing option; email codes are hashed);
+  - with `email.verification = optional`, someone can pre-register an address with a password;
+    no takeover (linking needs a verified local email), but the owner needs support to reclaim it;
+  - username look-alikes across scripts (Cyrillic `а` for Latin `a`) are not folded.
 - Security advisories: `npx boilauth check-updates --feed <url>` fetches an
   advisory JSON and compares versions locally. It runs only when you invoke it
   (or set `BOILAUTH_UPDATE_CHECK=1` and `BOILAUTH_ADVISORY_URL`) and sends nothing
