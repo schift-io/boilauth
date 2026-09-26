@@ -267,3 +267,9 @@ sign-up with verification optional: autoSignIn false -> duplicate answers 200 { 
 /sign-in/username, /sign-in/phone-number: no account, no password, or (phone) unverified -> dummy hash first,
 so every branch costs one hash.
 /is-username-available: per IP per hour (default 30); 0 -> disabledPaths (404).
+
+## [S1a] Absolute session lifetime — `src/plugin.ts`
+session create/update (databaseHooks): expiresAt = min(expiresAt, createdAt + absoluteDays)
+  (on refresh Better Auth has the loaded session in the endpoint context; its createdAt is used)
+/get-session after-hook: session with createdAt + absoluteDays <= now -> delete it, clear the cookie, answer null.
+Sliding refresh (updateAge) therefore never keeps a session past absoluteDays (audit F10, ASVS 3.3.2).

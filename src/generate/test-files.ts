@@ -191,6 +191,7 @@ export function testFile(a: Answers): string {
     if (a.rateLimit.sendPerAccountPerHour > 0) blocks.push(tpl("rate-limit-account", { ...vars, PER_ACCOUNT: a.rateLimit.sendPerAccountPerHour }));
   }
   blocks.push(tpl("sessions", { DAYS: a.session.days, DEVICES: a.session.devices, FIRST_ALIVE: a.session.devices === "multi" }));
+  blocks.push(tpl("session-absolute", { ABS_DAYS: a.session.absoluteDays }));
   if (a.session.bearer) {
     const signIn = pw
       ? `  const signInHeaders: Record<string, string> = { origin: h.BASE, "content-type": "application/json" };

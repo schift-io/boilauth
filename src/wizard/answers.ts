@@ -45,7 +45,7 @@ export interface Answers {
     usernameCheckPerIpPerHour: number;
     storage: "database" | "memory";
   };
-  session: { days: number; revokeOnPasswordChange: boolean; devices: "multi" | "single"; bearer: boolean };
+  session: { days: number; absoluteDays: number; revokeOnPasswordChange: boolean; devices: "multi" | "single"; bearer: boolean };
   mfa: { mode: "off" | "totp_optional" | "totp_required_admin"; backupCodes: number; emailOtp: boolean };
   roles: { mode: "none" | "admin" | "custom" | "organizations"; custom: string[]; orgCreation: "any_user" | "admin_only"; hideAdmin: boolean };
   deletion: {
@@ -67,10 +67,10 @@ export const DEFAULT_ANSWERS: Answers = {
   email: { verification: "required" },
   phone: { allowedCountries: [] },
   linking: { mode: "verified_only" },
-  password: { minLength: 10, breachedCheck: "off" },
+  password: { minLength: 12, breachedCheck: "off" },
   lockout: { maxFailures: 5, minutes: 15, accountMaxFailures: 20 },
   rateLimit: { signInPerMinute: 10, sendPerIpPerHour: 10, sendPerAccountPerHour: 5, smsPerHour: 100, usernameCheckPerIpPerHour: 30, storage: "database" },
-  session: { days: 7, revokeOnPasswordChange: true, devices: "multi", bearer: false },
+  session: { days: 7, absoluteDays: 30, revokeOnPasswordChange: true, devices: "multi", bearer: false },
   mfa: { mode: "off", backupCodes: 10, emailOtp: false },
   roles: { mode: "admin", custom: ["admin", "editor", "user"], orgCreation: "any_user", hideAdmin: false },
   deletion: { mode: "hard", export: true, guard: false, records: "delete", lastOrgOwner: "block" },
@@ -129,6 +129,8 @@ export function validateAnswers(a: Answers): string[] {
   if (!["delete", "anonymize"].includes(a.deletion.records)) errs.push(`deletion.records: unknown ${a.deletion.records}`);
   if (!["block", "transfer_to_oldest_admin"].includes(a.deletion.lastOrgOwner)) errs.push(`deletion.lastOrgOwner: unknown ${a.deletion.lastOrgOwner}`);
   int(a.session.days, 1, 90, "session.days");
+  int(a.session.absoluteDays, 1, 365, "session.absoluteDays");
+  if (a.session.absoluteDays < a.session.days) errs.push("session.absoluteDays must be >= session.days");
   int(a.mfa.backupCodes, 5, 20, "mfa.backupCodes");
   int(a.migration.firebase.rounds, 1, 64, "migration.firebase.rounds");
   int(a.migration.firebase.memCost, 1, 20, "migration.firebase.memCost");

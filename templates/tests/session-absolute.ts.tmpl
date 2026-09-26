@@ -1,0 +1,15 @@
+test("sessions: a session older than {{ABS_DAYS}} days ends even while in use", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const { jar } = await h.newUser(auth, "abs");
+  assert.ok((await h.currentSession(auth, jar))?.session);
+  const ctx = await auth.$context;
+  const day = 86_400_000;
+  for (const s of await ctx.adapter.findMany<{ id: string }>({ model: "session" })) {
+    await ctx.adapter.update({
+      model: "session",
+      where: [{ field: "id", value: s.id }],
+      update: { createdAt: new Date(Date.now() - ({{ABS_DAYS}} + 1) * day), expiresAt: new Date(Date.now() + day) },
+    });
+  }
+  assert.equal(await h.currentSession(auth, jar), null);
+});

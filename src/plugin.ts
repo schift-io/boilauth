@@ -28,6 +28,7 @@
  */
 import type { BetterAuthPlugin } from "better-auth";
 import { APIError, createAuthMiddleware } from "better-auth/api";
+import { deleteSessionCookie } from "better-auth/cookies";
 import { createHash } from "node:crypto";
 import type { PasswordHasher } from "./hash/index.js";
 import { clientIpKeyOf } from "./modules/client-ip.js";
@@ -51,6 +52,8 @@ export interface BoilauthPluginOptions {
   normalizeUsername?: (username: string) => string;
   /** Phone number sign-in is on: lockout and rehash cover /sign-in/phone-number. */
   phoneSignIn?: boolean;
+  /** Absolute session lifetime from sign-in, whatever the activity (audit F10). */
+  absoluteSessionSeconds?: number;
 }
 
 const SIGN_IN = "/sign-in/email";
@@ -106,11 +109,38 @@ export function boilauthPlugin(opts: BoilauthPluginOptions) {
     return ((await ctx.context.internalAdapter.findUserByEmail(email))?.user as LockFields | undefined) ?? null;
   };
   const lockKey = (userId: string, source: string) => `boilauth-lock:${userId}:${source}`;
+  const absMs = (opts.absoluteSessionSeconds ?? 30 * 86400) * 1000;
+  const capOf = (createdAt: Date | string | number | undefined) => new Date(new Date(createdAt ?? now()).getTime() + absMs);
+  const capped = (expiresAt: Date | undefined, createdAt: Date | string | number | undefined) =>
+    expiresAt && new Date(expiresAt).getTime() > capOf(createdAt).getTime() ? capOf(createdAt) : undefined;
   const lockWindow = opts.lockout.lockMinutes * 60;
   return {
     id: "boilauth",
     // Never matches: tells Better Auth's pruning that rateLimit rows live as long as a lock.
     rateLimit: [{ pathMatcher: () => false, window: Math.max(60, lockWindow), max: 1 }],
+    // Absolute session lifetime (audit F10): no write may set expiresAt past createdAt + absolute.
+    // On refresh Better Auth has put the loaded session in the endpoint context.
+    init: () => ({
+      options: {
+        databaseHooks: {
+          session: {
+            create: {
+              before: async (s: { expiresAt: Date; createdAt?: Date }) => {
+                const c = capped(s.expiresAt, s.createdAt);
+                return c ? { data: { ...s, expiresAt: c } } : undefined;
+              },
+            },
+            update: {
+              before: async (s: { expiresAt?: Date }, ctx: any) => {
+                const createdAt = ctx?.context?.session?.session?.createdAt;
+                const c = createdAt ? capped(s.expiresAt, createdAt) : undefined;
+                return c ? { data: { ...s, expiresAt: c } } : undefined;
+              },
+            },
+          },
+        },
+      },
+    }),
     schema: {
       user: {
         fields: {
@@ -176,6 +206,17 @@ export function boilauthPlugin(opts: BoilauthPluginOptions) {
         },
       ],
       after: [
+        {
+          // A session created before this cap (or with a slid expiry) ends at createdAt + absolute.
+          matcher: (ctx) => ctx.path === "/get-session",
+          handler: createAuthMiddleware(async (ctx) => {
+            const r = ctx.context.returned as { session?: { token: string; createdAt: Date | string } } | null | undefined;
+            if (!r?.session || now().getTime() < capOf(r.session.createdAt).getTime()) return;
+            await ctx.context.internalAdapter.deleteSession(r.session.token);
+            deleteSessionCookie(ctx);
+            return ctx.json(null);
+          }),
+        },
         {
           matcher: (ctx) => isSignIn(ctx.path),
           handler: createAuthMiddleware(async (ctx) => {

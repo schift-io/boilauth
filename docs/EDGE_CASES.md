@@ -98,7 +98,7 @@ Either way a verification mail is sent on sign-up. Import merges always need ver
 
 | Case | Policy key | Choices | Module | Spec |
 |---|---|---|---|---|
-| Minimum length | `password.minLength` | number 8..64, **10** | core | P1 |
+| Minimum length | `password.minLength` | number 8..64, **12** (ASVS 2.1.1; was 10 before 0.3.0) | core | P1 |
 | Breached password | `password.breachedCheck` | **`off`** / `hibp` (Have I Been Pwned range API, k-anonymity; sign-up, change, reset) | better-auth `haveIBeenPwned` | F1 |
 
 ## G. Lockout, rate limit, sessions
@@ -115,6 +115,7 @@ Either way a verification mail is sent on sign-up. Import merges always need ver
 | Username availability checks per IP per hour | `rateLimit.usernameCheckPerIpPerHour` | number, **30** (0 = endpoint removed; asked with username) | core | F7 |
 | Where counters live | `rateLimit.storage` | **`database`** (shared by every instance) / `memory` (one process) | core | L2 |
 | Session lifetime | `session.days` | number 1..90, **7** | core | S1 |
+| Absolute session lifetime, however active | `session.absoluteDays` | number 1..365, **30** (ASVS 3.3.2) | core | S1 |
 | Password change | `session.revokeOnPasswordChange` | **yes** (other sessions end) / no | `boilauth/sessions` | S2 |
 | Devices | `session.devices` | **`multi`** / `single` (a new sign-in ends the other sessions) | `boilauth/sessions` | S3 |
 | Mobile and API clients | `session.bearer` | yes / **no** (also accept `Authorization: Bearer <token>`; sign-in answers with `set-auth-token`) | better-auth `bearer` | S4 |

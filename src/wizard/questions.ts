@@ -190,6 +190,7 @@ export const QUESTIONS: Question[] = [
     ],
   },
   { key: "session.days", group: "G. Lockout and sessions", type: "number", message: "Session lifetime in days (1..90)" },
+  { key: "session.absoluteDays", group: "G. Lockout and sessions", type: "number", message: "Sign in again after this many days however active (1..365)" },
   { key: "session.revokeOnPasswordChange", group: "G. Lockout and sessions", type: "confirm", when: pw, message: "End other sessions when the password changes?" },
   {
     key: "session.devices", group: "G. Lockout and sessions", type: "select",

@@ -19,13 +19,14 @@ import { hideAdminRoutes } from "./modules/admin-hide.js";
 import { CLIENT_IP_HEADER, withClientIp, type ClientIpConfig } from "./modules/client-ip.js";
 
 export const PRESETS = {
-  minPasswordLength: 10,
+  minPasswordLength: 12, // ASVS 4.0.3 2.1.1
   maxPasswordLength: 128,
   lockout: { maxFailures: 5, lockMinutes: 15, accountMaxFailures: 20, knownSourceDays: 90 } satisfies LockoutOptions,
   session: {
     expiresIn: 60 * 60 * 24 * 7, // 7 days
     updateAge: 60 * 60 * 24, // rotate expiry at most once a day
     freshAge: 60 * 10, // sensitive actions need a sign-in in the last 10 min
+    absoluteDays: 30, // ASVS 3.3.2: re-authenticate at least every 30 days, even while active
   },
   rateLimit: {
     window: 60,
@@ -63,6 +64,8 @@ export interface BoilAuthOptions {
   /** Where rate-limit counters live. "database" (default) is shared by every instance; "memory" is per process. */
   rateLimitStorage?: "database" | "memory";
   sessionDays?: number;
+  /** A session ends this many days after sign-in however active it is (default 30). */
+  sessionAbsoluteDays?: number;
   /** Require a verified email before password sign-in (default true when an email sender is set). */
   requireEmailVerification?: boolean;
   /** Sends verification and password-reset mail. Without it neither mail goes out. */
@@ -157,7 +160,9 @@ export function boilAuthOptions(o: BoilAuthOptions) {
     },
     ...(o.username && usernameChecks === 0 ? { disabledPaths: [...(extra.disabledPaths ?? []), "/is-username-available"] } : {}),
     session: {
-      ...PRESETS.session,
+      expiresIn: PRESETS.session.expiresIn,
+      updateAge: PRESETS.session.updateAge,
+      freshAge: PRESETS.session.freshAge,
       ...(o.sessionDays ? { expiresIn: o.sessionDays * 86400 } : {}),
       ...extra.session,
     },
@@ -202,6 +207,7 @@ export function boilAuthOptions(o: BoilAuthOptions) {
         now: o.now,
         ...(o.username ? { normalizeUsername: (u: string) => normalizeUsername(o.username!, u) } : {}),
         phoneSignIn: Boolean(o.phone),
+        absoluteSessionSeconds: (o.sessionAbsoluteDays ?? PRESETS.session.absoluteDays) * 86400,
       }),
       ...(o.username ? [usernamePlugin(usernamePluginOptions(o.username))] : []),
       ...(o.phone ? phonePlugins(o.phone, o.now) : []),

@@ -121,6 +121,7 @@ export function authFile(a: Answers): string {
     `rateLimitSignInPerMinute: ${a.rateLimit.signInPerMinute}`,
     ...(a.rateLimit.storage === "memory" ? ['rateLimitStorage: "memory"'] : []),
     `sessionDays: ${a.session.days}`,
+    `sessionAbsoluteDays: ${a.session.absoluteDays}`,
   ];
   if (a.network.clientIp === "proxy") opts.push(`clientIp: { mode: "proxy", trustedProxies: ${JSON.stringify(a.network.trustedProxies)} }`);
   if (a.network.clientIp === "header") opts.push(`clientIp: { mode: "header", header: ${JSON.stringify(a.network.clientIpHeader)} }`);
