@@ -19,6 +19,7 @@ import { hideAdminRoutes } from "./modules/admin-hide.js";
 import { CLIENT_IP_HEADER, withClientIp, type ClientIpConfig } from "./modules/client-ip.js";
 import { mfaOnAllSignIns, withoutTokenOnChallenge } from "./modules/mfa-all.js";
 import { knownPathMatcher, withKnownPaths } from "./modules/known-paths.js";
+import { paramTemplates, templateRateStorage, type RateStorage, type TemplateStorageLink } from "./modules/rate-key.js";
 import { DEFAULT_SECURITY_NOTICES, notifier, securityNotices, type SecurityNotices } from "./modules/notify.js";
 
 export const PRESETS = {
@@ -176,6 +177,15 @@ export function boilAuthOptions(o: BoilAuthOptions) {
   const usernameChecks = o.username ? (o.usernameCheckPerIpPerHour ?? 30) : 0;
   const requireVerification = o.requireEmailVerification ?? Boolean(sendVerification);
   const { "/request-password-reset": resetRule, ...coreRules } = PRESETS.rateLimit.customRules;
+  // One limiter counter per route template, not per path value (round-3 audit N1).
+  const rateLink: TemplateStorageLink = { templates: [] };
+  const extraRate = (extra.rateLimit ?? {}) as { storage?: "memory" | "database" | "secondary-storage"; customStorage?: RateStorage };
+  const rateStorage = templateRateStorage({
+    link: rateLink,
+    storage: extraRate.storage ?? o.rateLimitStorage ?? "database",
+    custom: extraRate.customStorage,
+    increment: (extra as { secondaryStorage?: { increment?: (k: string, ttl: number) => Promise<number> } }).secondaryStorage?.increment,
+  });
   const options = {
     database: o.database,
     secret: o.secret,
@@ -229,6 +239,7 @@ export function boilAuthOptions(o: BoilAuthOptions) {
         ...(o.phone ? { "/sign-in/phone-number": { window: 60, max: signInPerMinute } } : {}),
       },
       ...extra.rateLimit,
+      customStorage: rateStorage,
     },
     advanced: {
       useSecureCookies: o.baseURL.startsWith("https://"),
@@ -264,7 +275,7 @@ export function boilAuthOptions(o: BoilAuthOptions) {
     ],
   } satisfies BetterAuthOptions;
   refuseUnsafeOverrides(o, options.plugins as { id: string }[]);
-  return { options, hasher };
+  return { options, hasher, rateLink };
 }
 
 export function clientIpConfig(o: BoilAuthOptions): ClientIpConfig {
@@ -272,14 +283,31 @@ export function clientIpConfig(o: BoilAuthOptions): ClientIpConfig {
 }
 
 export function createBoilAuth(o: BoilAuthOptions) {
-  const { options, hasher } = boilAuthOptions(o);
+  const { options, hasher, rateLink } = boilAuthOptions(o);
   const auth = betterAuth(options);
+  rateLink.templates = paramTemplates(auth.api as Record<string, unknown>);
+  rateLink.adapter = async () => (await auth.$context).adapter;
   // Unknown paths stop first (no rate-limit key); then the client IP is resolved. Better Auth's own
   // 429 carries only X-Retry-After: add the standard header. A two-factor challenge never carries a
   // bearer token, whether bearer() came from the option or from plugins (re-audit L3).
   const known = knownPathMatcher(auth.api as Record<string, unknown>, options.basePath ?? "/api/auth");
   const resolved = withClientIp(auth.handler, clientIpConfig(o));
-  const handler = withKnownPaths(withRateLimitHeaders(withoutTokenOnChallenge(resolved)), known);
+  // /callback/:id for a provider this instance does not have ends here too (round-3 audit N1).
+  const base = (options.basePath ?? "/api/auth").replace(/\/+$/, "");
+  const callback = new RegExp(`^${base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/callback/([^/]+)(?:/oauth-proxy)?/?$`);
+  const configured = async (pathname: string) => {
+    const m = callback.exec(pathname);
+    if (!m) return true;
+    const ctx = await auth.$context;
+    let id: string;
+    try {
+      id = decodeURIComponent(m[1]);
+    } catch {
+      return false;
+    }
+    return ctx.socialProviders.some((p: { id: string }) => p.id === id);
+  };
+  const handler = withKnownPaths(withRateLimitHeaders(withoutTokenOnChallenge(resolved)), known, configured);
   return Object.assign(auth, { handler, boilauth: { hasher, options, input: o } });
 }
 

@@ -312,6 +312,15 @@ Every Better Auth 1.7.6 endpoint calling setSessionCookie is classified in the h
 request path (under basePath) that matches no endpoint of the instance (":param" = one segment) -> 404 before
 Better Auth, so no rate-limit counter is created for it.
 
+## [N1] Rate-limit keys per route template — `src/modules/rate-key.ts` (round-3 audit)
+Better Auth keys its limiter on "<ip>|<raw path>". Routes with a path parameter in 1.7.6: /callback/:id,
+/callback/:id/oauth-proxy (plugin not offered), /reset-password/:token. rateLimit.customStorage (always set by
+boilauth) folds the parameter: "<ip>|/reset-password/abc" -> "<ip>|/reset-password/:token", then counts in the
+configured storage (rateLimit table via counter-store, memory bounded at 100 000 like Better Auth's own, secondary
+storage, or the developer's customStorage, which receives the folded key). Expired limiter rows (keys with "|")
+are pruned every 200 counts; boilauth's own counters (no "|") are left alone.
+/callback/<id> (and /oauth-proxy) whose id is not one of the instance's social providers -> 404 before Better Auth.
+
 ## [C5] Phone attach — `src/modules/phone.ts`
 /phone-number/verify with updatePhoneNumber: session older than sessionConfig.freshAge -> 403 SESSION_NOT_FRESH
 before the code is checked; on success -> security.phone_changed.

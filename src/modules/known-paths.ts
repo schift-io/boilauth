@@ -29,9 +29,18 @@ export function knownPathMatcher(api: Record<string, unknown>, basePath = "/api/
   };
 }
 
-export function withKnownPaths<I>(handler: Handler<I>, isKnown: (pathname: string) => boolean): Handler<I> {
+/**
+ * `paramOk` checks path parameter values that are cheap to know (a callback for a provider this
+ * instance does not have): those end with the same 404, before any rate-limit key exists.
+ */
+export function withKnownPaths<I>(
+  handler: Handler<I>,
+  isKnown: (pathname: string) => boolean,
+  paramOk: (pathname: string) => Promise<boolean> | boolean = () => true,
+): Handler<I> {
   return async (req, info) => {
-    if (!isKnown(new URL(req.url).pathname)) return new Response(null, { status: 404, statusText: "Not Found" });
+    const { pathname } = new URL(req.url);
+    if (!isKnown(pathname) || !(await paramOk(pathname))) return new Response(null, { status: 404, statusText: "Not Found" });
     return handler(req, info);
   };
 }

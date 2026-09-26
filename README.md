@@ -333,7 +333,9 @@ A test fails if any module's live columns drift from its file.
 - A soft-deleted account answers the right password exactly like a wrong one.
 - Paths that are not endpoints of your instance answer 404 before any rate-limit counter
   is written, so made-up paths cannot fill the rate-limit table or push hot counters out
-  of the in-memory store. The in-memory store (`rateLimit.storage = memory`) still holds
+  of the in-memory store. Routes with a path parameter (`/callback/:id`, `/reset-password/:token`) count per IP
+  per route, not per value, and a callback for a provider you have not configured answers 404
+  before any counter exists. The in-memory store (`rateLimit.storage = memory`) still holds
   at most 100 000 counters per process and evicts the oldest first; an attacker with many
   addresses can still cycle it. Use `database` (default) when that matters.
 - Attaching a phone number needs a sign-in within the last 10 minutes and sends a notice;
