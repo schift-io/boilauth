@@ -1,0 +1,13 @@
+test("deletion guard: an admin removing the user meets the same veto", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth({ canDelete: async () => ({ ok: false, code: "active_subscription", message: "Cancel first" }) });
+  const { email } = await h.newUser(auth, "adm-del");
+  const admin = await h.newUser(auth, "remover");
+  await boil.grantRole(auth, admin.email, "admin");
+  const adminJar = {{ADMIN_JAR}};
+  const ctx = await auth.$context;
+  const target = (await ctx.internalAdapter.findUserByEmail(email))!.user;
+  const r = await h.call(auth, "/admin/remove-user", { body: { userId: target.id }, jar: adminJar });
+  assert.equal(r.status, 409, JSON.stringify(r.json));
+  assert.equal(r.json.code, "active_subscription");
+  assert.ok(await ctx.internalAdapter.findUserById(target.id), "the user is still there");
+});

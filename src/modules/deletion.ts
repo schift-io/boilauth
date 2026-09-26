@@ -145,9 +145,30 @@ export function accountDeletion(o: AccountDeletionOptions) {
                   : {}),
               },
         },
-        ...(soft
-          ? {
-              databaseHooks: {
+        databaseHooks: {
+          user: {
+            delete: {
+              // /admin/remove-user deletes through internalAdapter.deleteUser after the admin plugin's
+              // own permission check; the same rules as self-service deletion apply (audit F12).
+              before: async (user: { id: string; email: string }, hookCtx: any) => {
+                if (hookCtx?.path !== "/admin/remove-user") return;
+                const db = await getCurrentAdapter(authCtx.adapter);
+                await prepare(db, user);
+                if (o.organizations) await leaveOrganizations(db, user.id);
+                if (!soft && !anonymize) return;
+                const ia = hookCtx.context.internalAdapter;
+                if (soft) {
+                  await ia.updateUser(user.id, { deletedAt: new Date() });
+                  await ia.deleteUserSessions(user.id);
+                } else {
+                  await anonymizeUser(db, ia, user.id);
+                }
+                return false; // keep the row: soft-deleted or anonymized
+              },
+            },
+          },
+          ...(soft
+            ? {
                 session: {
                   create: {
                     // Runs for every session insert, inside or outside a request.
@@ -163,9 +184,9 @@ export function accountDeletion(o: AccountDeletionOptions) {
                     },
                   },
                 },
-              },
-            }
-          : {}),
+              }
+            : {}),
+        },
       },
     }),
   } satisfies BetterAuthPlugin;

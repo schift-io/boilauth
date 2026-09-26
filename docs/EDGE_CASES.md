@@ -183,6 +183,11 @@ Every self-service deletion needs the password when the user has one, and a sess
 `session.freshAge` (10 min) otherwise. With organizations the user leaves every organization; invitations
 they sent stay as history.
 
+`/admin/remove-user` (Better Auth's admin plugin) meets the same rules after the admin's permission check:
+the app's veto (409), the organization rule, and `deletion.mode = soft` / `deletion.records = anonymize`
+keep the row (audit F12; before 0.3.0 an admin removal deleted the row directly).
+
+
 ## Wizard question order
 
 1. 0 situation: existing users, how they sign in, where they are now (C `migration.sources`), verified emails, audience

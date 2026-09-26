@@ -289,3 +289,9 @@ cookie (2fa-<id> -> user, attempts counter; as Better Auth's twoFactor does for 
   JSON route -> { twoFactorRedirect: true, twoFactorMethods }; redirect route -> same Location + ?twoFactorRedirect=true.
 /two-factor/verify-totp (or backup code, email second step) finishes the sign-in. Trusted-device cookie not honoured here.
 Default on (audit F11, ASVS 2.2.2); mfaOnAllSignIns: false restores the old behaviour.
+
+## [D7] Admin removal — `src/modules/deletion.ts`
+user.delete.before (databaseHooks), only when the request path is /admin/remove-user (the admin plugin has checked
+the caller's permission): canDelete veto -> 409 with its code; organization last-owner rule; leave organizations;
+soft -> deletedAt + end sessions, anonymize -> anonymizeUser; both return false so the row is kept.
+purgeDeleted and other internal deletes are not affected (no request path).

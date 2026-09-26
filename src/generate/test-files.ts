@@ -300,6 +300,10 @@ function deletionBlocks(a: Answers): string[] {
     out.push(tpl(anon ? "deletion-anonymize" : "deletion-hard", { DELETE_BODY: body }));
   }
   if (a.deletion.guard) out.push(tpl("deletion-guard", { DELETE_PATH: path, DELETE_BODY: body }));
+  // With TOTP required for admins the admin session needs a code; that path is covered by the MFA test.
+  if (a.deletion.guard && a.roles.mode !== "none" && a.mfa.mode !== "totp_required_admin" && a.signIn.emailPassword) {
+    out.push(tpl("deletion-admin", { ADMIN_JAR: "await h.signIn(auth, admin.email)" }));
+  }
   if (a.roles.mode === "organizations") {
     const branch =
       a.deletion.lastOrgOwner === "block"
