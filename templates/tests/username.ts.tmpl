@@ -1,0 +1,81 @@
+/** Sign up with a username under boilauth.username.yaml; returns the stored (normalized) name. */
+async function signUpNamed(auth: h.Auth, username: string) {
+  const email = h.newEmail("un");
+  const r = await h.call(auth, "/sign-up/email", { body: { email, password: h.PW, name: "Named User", username } });
+  if (r.status === 200 && h.VERIFICATION_REQUIRED) await h.call(auth, h.lastMail(email, "/verify-email"));
+  return { r, email };
+}
+
+/** A username of length n that matches the rules pattern, built from its allowed characters. */
+function validName(n: number, seed = "u"): string {
+  const pattern = new RegExp(h.USERNAME_RULES.pattern);
+  for (const alphabet of ["abcdefghijklmnopqrstuvwxyz", "0123456789", "ABCDEFGHIJKLMNOPQRSTUVWXYZ"]) {
+    const s = (seed + alphabet.repeat(4)).slice(0, n);
+    if (pattern.test(s) && !h.USERNAME_RULES.reserved.some((r) => r.toLowerCase() === s.toLowerCase())) return s;
+  }
+  throw new Error("no simple username matches pattern " + h.USERNAME_RULES.pattern);
+}
+
+test("username: sign up, sign in by username with the password; rules come from boilauth.username.yaml", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const name = validName(Math.max(h.USERNAME_RULES.minLength, 6), "a" + Date.now().toString(36));
+  const { r, email } = await signUpNamed(auth, name);
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  const jar: h.Jar = new Map();
+  const ok = await h.call(auth, "/sign-in/username", { body: { username: name, password: h.PW }, jar });
+  assert.equal(ok.status, 200, JSON.stringify(ok.json));
+  assert.equal((await h.currentSession(auth, jar))?.user.email, email);
+  const bad = await h.call(auth, "/sign-in/username", { body: { username: name, password: h.PW + "x" } });
+  assert.equal(bad.status, 401);
+});
+
+/** Refused with Better Auth's username error code (400 at sign-up). */
+function refused(r: h.Reply, code: string, label: string) {
+  assert.equal(r.status, 400, `${label}: ${JSON.stringify(r.json)}`);
+  assert.equal(r.json?.code, code, label);
+}
+
+test("username: length, pattern and reserved names are refused at sign-up", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const R = h.USERNAME_RULES;
+  if (R.minLength > 1) refused((await signUpNamed(auth, validName(R.minLength - 1))).r, "USERNAME_TOO_SHORT", "too short");
+  refused((await signUpNamed(auth, validName(R.maxLength + 1))).r, "USERNAME_TOO_LONG", "too long");
+  const pattern = new RegExp(R.pattern);
+  const outside = [" ", "!", "@", "#", "/", "é", "-", "."].find((c) => !pattern.test(validName(R.minLength) + c));
+  const fits = (n: string) => n.length >= R.minLength && n.length <= R.maxLength;
+  if (outside && fits(validName(R.minLength) + outside)) {
+    refused((await signUpNamed(auth, validName(R.minLength) + outside)).r, "INVALID_USERNAME", `character ${JSON.stringify(outside)}`);
+  }
+  // Only reserved names the length and pattern rules would otherwise accept prove the reserved rule itself.
+  const checkable = R.reserved.filter((n) => fits(n) && pattern.test(n)).slice(0, 3);
+  for (const name of checkable) {
+    refused((await signUpNamed(auth, name)).r, "INVALID_USERNAME", `reserved ${name}`);
+    if (pattern.test(name.toUpperCase())) refused((await signUpNamed(auth, name.toUpperCase())).r, "INVALID_USERNAME", `reserved ${name} in capitals`);
+  }
+});
+
+test("username: case rule decides whether Name and name collide", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const base = validName(Math.max(h.USERNAME_RULES.minLength, 6), "c" + Date.now().toString(36));
+  const upper = base[0].toUpperCase() + base.slice(1);
+  const pattern = new RegExp(h.USERNAME_RULES.pattern);
+  if (!pattern.test(upper) || upper === base) return; // pattern has no capitals: nothing to compare
+  assert.equal((await signUpNamed(auth, base)).r.status, 200);
+  const second = (await signUpNamed(auth, upper)).r;
+  if (h.USERNAME_RULES.caseInsensitive) {
+    assert.equal(second.status, 400, "same name in other casing is taken");
+    assert.equal(second.json.code, "USERNAME_IS_ALREADY_TAKEN");
+  } else assert.equal(second.status, 200, "case-sensitive rules keep them apart");
+});
+
+test("username: wrong passwords by username count toward the account lockout", { skip: h.SKIP || !{{LOCKOUT_ON}} }, async () => {
+  const auth = await h.makeAuth();
+  const name = validName(Math.max(h.USERNAME_RULES.minLength, 6), "l" + Date.now().toString(36));
+  assert.equal((await signUpNamed(auth, name)).r.status, 200);
+  for (let i = 0; i < {{MAX_FAILURES}}; i++) {
+    assert.equal((await h.call(auth, "/sign-in/username", { body: { username: name, password: `wrong-${i}-pw` } })).status, 401);
+  }
+  const locked = await h.call(auth, "/sign-in/username", { body: { username: name, password: h.PW } });
+  assert.equal(locked.status, 401, "the right password is refused while locked");
+  assert.equal(locked.json.code, "INVALID_USERNAME_OR_PASSWORD");
+});

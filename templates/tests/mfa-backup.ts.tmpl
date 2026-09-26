@@ -1,0 +1,21 @@
+test("backup codes: {{AMOUNT}} codes at enrolment; one gets past the second step once", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const { email, jar } = await h.newUser(auth, "bk");
+  const en = await h.call(auth, "/two-factor/enable", { body: { password: h.PW }, jar });
+  assert.equal(en.status, 200, JSON.stringify(en.json));
+  const codes = en.json.backupCodes as string[];
+  assert.equal(codes.length, {{AMOUNT}});
+  assert.equal((await h.call(auth, "/two-factor/verify-totp", { body: { code: h.totp(en.json.totpURI) }, jar })).status, 200);
+  const step = async () => {
+    const j: h.Jar = new Map();
+    const first = await h.call(auth, "/sign-in/email", { body: { email, password: h.PW }, jar: j });
+    assert.equal(first.json.twoFactorRedirect, true);
+    return j;
+  };
+  const j1 = await step();
+  assert.equal((await h.call(auth, "/two-factor/verify-backup-code", { body: { code: codes[0] }, jar: j1 })).status, 200);
+  assert.equal((await h.currentSession(auth, j1))?.user.email, email);
+  const j2 = await step();
+  assert.notEqual((await h.call(auth, "/two-factor/verify-backup-code", { body: { code: codes[0] }, jar: j2 })).status, 200, "a used code is spent");
+  assert.equal(await h.currentSession(auth, j2), null);
+});

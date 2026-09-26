@@ -24,7 +24,7 @@ export interface Answers {
     audience: (typeof AUDIENCES)[number];
   };
   runtime: { database: "sqlite" | "postgres" };
-  signIn: { emailPassword: boolean; magicLink: boolean; oauth: OAuthProvider[] };
+  signIn: { emailPassword: boolean; username: boolean; magicLink: boolean; emailOtp: boolean; oauth: OAuthProvider[] };
   migration: {
     sources: MigrationSource[];
     firebase: { keyId: string; saltSeparator: string; rounds: number; memCost: number };
@@ -35,7 +35,7 @@ export interface Answers {
   lockout: { maxFailures: number; minutes: number };
   rateLimit: { signInPerMinute: number };
   session: { days: number; revokeOnPasswordChange: boolean; devices: "multi" | "single" };
-  mfa: { mode: "off" | "totp_optional" | "totp_required_admin" };
+  mfa: { mode: "off" | "totp_optional" | "totp_required_admin"; backupCodes: number; emailOtp: boolean };
   roles: { mode: "none" | "admin" | "custom" | "organizations"; custom: string[]; orgCreation: "any_user" | "admin_only" };
   deletion: { mode: "hard" | "soft"; export: boolean };
 }
@@ -44,7 +44,7 @@ export const DEFAULT_ANSWERS: Answers = {
   version: 1,
   situation: { existingUsers: false, currentSignIn: ["email_password"], sourceVerifiedEmail: "yes", audience: "b2c" },
   runtime: { database: "sqlite" },
-  signIn: { emailPassword: true, magicLink: false, oauth: [] },
+  signIn: { emailPassword: true, username: false, magicLink: false, emailOtp: false, oauth: [] },
   migration: { sources: [], firebase: { keyId: "firebase", saltSeparator: "Bw==", rounds: 8, memCost: 14 } },
   email: { verification: "required" },
   linking: { mode: "verified_only" },
@@ -52,7 +52,7 @@ export const DEFAULT_ANSWERS: Answers = {
   lockout: { maxFailures: 5, minutes: 15 },
   rateLimit: { signInPerMinute: 10 },
   session: { days: 7, revokeOnPasswordChange: true, devices: "multi" },
-  mfa: { mode: "off" },
+  mfa: { mode: "off", backupCodes: 10, emailOtp: false },
   roles: { mode: "admin", custom: ["admin", "editor", "user"], orgCreation: "any_user" },
   deletion: { mode: "hard", export: true },
 };
@@ -79,12 +79,13 @@ export const ROLE_NAME = /^[a-z][a-z0-9_-]{0,31}$/;
 export function validateAnswers(a: Answers): string[] {
   const errs: string[] = [];
   const s = a.signIn;
-  if (!s.emailPassword && !s.magicLink && s.oauth.length === 0) errs.push("signIn: turn on at least one sign-in method");
+  if (!s.emailPassword && !s.magicLink && !s.emailOtp && s.oauth.length === 0) errs.push("signIn: turn on at least one sign-in method");
   for (const p of s.oauth) if (!OAUTH_PROVIDERS.includes(p)) errs.push(`signIn.oauth: unknown provider ${p}`);
   for (const m of a.situation.currentSignIn) if (!SIGN_IN_METHODS.includes(m)) errs.push(`situation.currentSignIn: unknown ${m}`);
   if (!AUDIENCES.includes(a.situation.audience)) errs.push(`situation.audience: unknown ${a.situation.audience}`);
   for (const m of a.migration.sources) if (!MIGRATION_SOURCES.includes(m)) errs.push(`migration.sources: unknown ${m}`);
   if (a.migration.sources.length && !s.emailPassword) errs.push("migration.sources needs signIn.emailPassword");
+  if (s.username && !s.emailPassword) errs.push("signIn.username needs signIn.emailPassword");
   const int = (v: number, lo: number, hi: number, key: string) => {
     if (!Number.isInteger(v) || v < lo || v > hi) errs.push(`${key}: ${v} is outside ${lo}..${hi}`);
   };
@@ -93,6 +94,7 @@ export function validateAnswers(a: Answers): string[] {
   int(a.lockout.minutes, 1, 1440, "lockout.minutes");
   int(a.rateLimit.signInPerMinute, 1, 1000, "rateLimit.signInPerMinute");
   int(a.session.days, 1, 90, "session.days");
+  int(a.mfa.backupCodes, 5, 20, "mfa.backupCodes");
   int(a.migration.firebase.rounds, 1, 64, "migration.firebase.rounds");
   int(a.migration.firebase.memCost, 1, 20, "migration.firebase.memCost");
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(a.migration.firebase.keyId)) errs.push("migration.firebase.keyId: letters, digits, - and _ only");
@@ -144,6 +146,7 @@ export function normalizeAnswers(input: unknown): Answers {
   const a = merged as unknown as Answers;
   for (const [k, v] of Object.entries(situationDefaults(a))) if (getPath(input, k) === undefined) setPath(merged, k, v);
   if (!a.signIn.emailPassword) {
+    a.signIn.username = false;
     a.migration.sources = [];
     a.mfa.mode = "off";
   }

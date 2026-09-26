@@ -44,7 +44,9 @@ Adapter is Better Auth's built-in Kysely adapter for both (not asked). Language 
 | Case | Policy key | Choices | Module | Spec |
 |---|---|---|---|---|
 | Email + password | `signIn.emailPassword` | **yes** / no | core | P1 L1 R1 |
+| Username sign-in (needs email + password) | `signIn.username` | yes / **no**; rules in `boilauth.username.yaml` | better-auth `username` + `boilauth/username` | U1 |
 | Magic link by email | `signIn.magicLink` | yes / **no** | better-auth `magicLink` | B2 |
+| One-time code by email | `signIn.emailOtp` | yes / **no** (6 digits, 5 minutes, 3 tries, stored hashed) | better-auth `emailOTP` | B4 |
 | OAuth providers | `signIn.oauth` | multi: `google` `github` `apple` `kakao` `naver`, **none** | better-auth `socialProviders` | B3 |
 
 At least one method must be on. Magic link and OAuth sign-ins are outside the TOTP challenge (Better Auth's two-factor hook covers `/sign-in/email`); see H.
@@ -100,6 +102,12 @@ A fresh session token on every sign-in and ending all sessions on password reset
 | Case | Policy key | Choices | Module | Spec |
 |---|---|---|---|---|
 | Second factor | `mfa.mode` | **`off`** / `totp_optional` / `totp_required_admin` | better-auth `twoFactor` (+ `boilauth/mfa`) | H1 H2 |
+| Backup codes per user | `mfa.backupCodes` | number 5..20, **10** (each usable once) | better-auth `twoFactor` | H3 |
+| Code by email as the second step | `mfa.emailOtp` | yes / **no** (6 digits, 5 minutes, 3 tries, stored hashed) | better-auth `twoFactor` otp | H4 |
+
+An email code (H4) is an alternative second step for normal sign-in only; admin endpoints under
+`totp_required_admin` still need TOTP or a backup code. Email-code sign-in (B4), like magic link,
+has no second step and never satisfies the admin requirement.
 
 `totp_required_admin` is offered only when roles are on. Admin endpoints then need a session that passed TOTP; an admin without TOTP gets 403 `MFA_REQUIRED`.
 

@@ -158,6 +158,30 @@ core always ; admin (roles != none) ; two-factor (mfa != off) ; mfa-admin (totp_
 organization (roles = organizations) ; soft-delete (deletion = soft).
 Each has schema/<module>.v<N>.json = its delta over its base; migrate(auth) rewrites boilauthModule rows.
 
+## [B4] One-time code by email — better-auth `emailOTP`
+emailOTP({ otpLength 6, expiresIn 300, allowedAttempts 3, storeOTP "hashed", sendVerificationOTP -> d.email }).
+POST /email-otp/send-verification-otp {email, type: sign-in} then POST /sign-in/email-otp {email, otp}.
+A code works once; after 3 wrong codes it is spent (403 TOO_MANY_ATTEMPTS). No second step: an admin
+under totp_required_admin reaching /admin/* from such a session gets 403 MFA_REQUIRED [H2].
+
+## [H3] Backup codes — better-auth `twoFactor` backupCodeOptions.amount (10 = Better Auth default, not emitted)
+/two-factor/enable returns the codes; POST /two-factor/verify-backup-code spends one. Satisfies [H2].
+
+## [H4] Email code as second step — better-auth `twoFactor` otpOptions
+otpOptions { digits 6, period 5 min, allowedAttempts 3, storeOTP hashed, sendOTP -> d.email }.
+POST /two-factor/send-otp then /two-factor/verify-otp. Not in boilauth/mfa VERIFY_PATHS on purpose:
+an email code does not satisfy [H2].
+
+## [U1] Username sign-in — `src/modules/username.ts`, better-auth `username`
+Rules live in boilauth.username.yaml (written once by init, then the developer's):
+minLength, maxLength, pattern (whole-name regex), reserved (case-insensitive), caseInsensitive, immutable.
+loadUsernameRules() parses with `yaml` and checks with zod at startup; a bad key stops startup, named.
+createBoilAuth({ username }) adds username({ min/maxUsernameLength, usernameValidator = pattern && !reserved,
+  usernameNormalization = caseInsensitive ? lower : none, immutableUsername }).
+Lockout [L1], rehash [R1] and the sign-in rate limit [L2] cover POST /sign-in/username too; the account is
+found by the normalized username. TOTP [H1] covers it through Better Auth's own two-factor hook.
+Schema module `username` adds user.username (unique) and user.displayUsername.
+
 ## [W1] Situation: existing users — `src/wizard/answers.ts` situationDefaults()
 Applied only to keys the developer has not answered; every policy question is still asked.
 existingUsers and currentSignIn non-empty -> signIn.emailPassword/magicLink/oauth = currentSignIn

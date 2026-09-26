@@ -32,15 +32,19 @@ export const FIXTURES: Record<string, string> = {
   generic: "generic-users.csv",
 };
 
-function signInKind(a: Answers): "password" | "magic" | "google" {
+function signInKind(a: Answers): "password" | "magic" | "otp" | "google" {
   if (a.signIn.emailPassword) return "password";
   if (a.signIn.magicLink) return "magic";
+  if (a.signIn.emailOtp) return "otp";
   return "google";
 }
 
 export function helpersFile(a: Answers): string {
   const pg = a.runtime.database === "postgres";
-  const dbImport = pg ? 'import pg from "pg";' : 'import { DatabaseSync } from "node:sqlite";';
+  const username = a.signIn.emailPassword && a.signIn.username;
+  const dbImport =
+    (pg ? 'import pg from "pg";' : 'import { DatabaseSync } from "node:sqlite";') +
+    (username ? '\nimport { loadUsernameRules } from "boilauth/username";' : "");
   const dbFactory = pg
     ? `export const SKIP: string | false = process.env.TEST_DATABASE_URL ? false : "TEST_DATABASE_URL not set";
 
@@ -65,6 +69,7 @@ async function testDatabase(): Promise<AuthDeps["database"]> {
 }`;
   const extra: string[] = [];
   if (a.migration.sources.includes("firebase")) extra.push("    firebaseKeys: [FIREBASE_SAMPLE_KEY],");
+  if (username) extra.push("    usernameRules: USERNAME_RULES,");
   if (a.signIn.oauth.length || signInKind(a) === "google") {
     extra.push(
       `    oauth: { ${a.signIn.oauth.map((p) => `${p}: { clientId: "test-${p}-id", clientSecret: "test-${p}-secret" }`).join(", ")} } as AuthDeps["oauth"],`,
@@ -72,6 +77,7 @@ async function testDatabase(): Promise<AuthDeps["database"]> {
   }
   let signInHelpers = tpl(`signin-${signInKind(a)}`, a.signIn.emailPassword ? { VERIFICATION_REQUIRED: a.email.verification === "required" } : {});
   if (a.signIn.oauth.length) signInHelpers = tpl("oauth-helpers") + "\n" + signInHelpers;
+  if (a.signIn.emailOtp) signInHelpers = tpl("code-helpers") + "\n" + signInHelpers;
   const firebaseKey = a.migration.sources.includes("firebase")
     ? `/** Public sample params from the firebase/scrypt README, not a real project key. */
 export const FIREBASE_SAMPLE_KEY = {
@@ -103,7 +109,12 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   return (
     tpl("helpers", {
       DB_IMPORT: dbImport,
-      DB_FACTORY: firebaseKey + dbFactory,
+      DB_FACTORY:
+        firebaseKey +
+        (username
+          ? '/** The project\'s own rules file: the username tests follow whatever it says. */\nexport const USERNAME_RULES = loadUsernameRules(new URL("../boilauth.username.yaml", import.meta.url));\n\n'
+          : "") +
+        dbFactory,
       DEPS_EXTRA: extra.map((l) => l + "\n").join(""),
       SIGN_IN_HELPERS: signInHelpers,
     }).replace("    ...over,\n    betterAuth: { logger: { disabled: true }, ...over.betterAuth },", fixBetterAuth(googleForTests)) +
@@ -135,8 +146,10 @@ export function testFile(a: Answers): string {
     if (a.lockout.maxFailures > 0) blocks.push(tpl("lockout", { MAX_FAILURES: a.lockout.maxFailures, LOCK_MIN: a.lockout.minutes }));
     if (a.password.breachedCheck === "hibp") blocks.push(tpl("hibp"));
     for (const s of a.migration.sources) blocks.push(tpl(`migration-${s}`));
+    if (a.signIn.username) blocks.push(tpl("username", { LOCKOUT_ON: a.lockout.maxFailures > 0, MAX_FAILURES: a.lockout.maxFailures }));
   }
   if (a.signIn.magicLink) blocks.push(tpl("magic"));
+  if (a.signIn.emailOtp) blocks.push(tpl("email-otp"));
   if (a.signIn.oauth.length) {
     const hosts = Object.fromEntries(a.signIn.oauth.map((p) => [p, OAUTH_HOSTS[p]]));
     blocks.push(tpl("oauth", { OAUTH_HOSTS: JSON.stringify(hosts) }));
@@ -151,8 +164,19 @@ export function testFile(a: Answers): string {
       }),
     );
   }
-  if (a.mfa.mode !== "off") blocks.push(tpl("mfa-optional"));
+  if (a.mfa.mode !== "off") {
+    blocks.push(tpl("mfa-optional"));
+    blocks.push(tpl("mfa-backup", { AMOUNT: a.mfa.backupCodes }));
+    if (a.mfa.emailOtp) blocks.push(tpl("mfa-email", { ADMIN_CHECK: a.mfa.mode === "totp_required_admin" && a.roles.mode !== "none" }));
+  }
   if (a.mfa.mode === "totp_required_admin") {
+    const otp = a.signIn.emailOtp
+      ? `  const otpJar: h.Jar = new Map();
+  assert.equal((await h.call(auth, "/email-otp/send-verification-otp", { body: { email, type: "sign-in" } })).status, 200);
+  await h.call(auth, "/sign-in/email-otp", { body: { email, otp: h.lastCode(email) }, jar: otpJar });
+  assert.equal((await h.call(auth, "/admin/list-users", { jar: otpJar })).status, 403, "email code session skipped TOTP");
+`
+      : "";
     const magic = a.signIn.magicLink
       ? `  const viaLink = await h.call(auth, "/sign-in/magic-link", { body: { email, callbackURL: "/" } });
   assert.equal(viaLink.status, 200);
@@ -161,7 +185,7 @@ export function testFile(a: Answers): string {
   assert.equal((await h.call(auth, "/admin/list-users", { jar: linkJar })).status, 403, "magic link session skipped TOTP");
 `
       : "";
-    blocks.push(tpl("mfa-admin", { MFA_ADMIN_MAGIC: magic }));
+    blocks.push(tpl("mfa-admin", { MFA_ADMIN_MAGIC: magic + otp }));
   }
   blocks.push(rolesBlock(a));
   const deleteBody = pw ? "{ password: h.PW }" : "{}";

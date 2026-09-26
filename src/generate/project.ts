@@ -8,6 +8,7 @@ import { dirname, join } from "node:path";
 import type { Answers } from "../wizard/answers.js";
 import { authFile, configFile, emailFile, envExample, permissionsFile } from "./auth-file.js";
 import { FIXTURES, helpersFile, testFile } from "./test-files.js";
+import { usernameRulesYaml } from "../modules/username.js";
 
 export interface PlannedFile {
   path: string;
@@ -81,6 +82,7 @@ export function planProject(a: Answers): PlannedFile[] {
     { path: "tsconfig.json", content: TSCONFIG, owned: true },
   ];
   if (a.roles.mode === "custom") files.push({ path: "src/permissions.ts", content: permissionsFile(a), owned: true });
+  if (a.signIn.emailPassword && a.signIn.username) files.push({ path: "boilauth.username.yaml", content: usernameRulesYaml(), owned: true });
   for (const s of a.migration.sources) {
     const f = FIXTURES[s];
     files.push({

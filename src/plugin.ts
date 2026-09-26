@@ -13,6 +13,9 @@
  *    Firebase scrypt, or weaker argon2 params) it is replaced with a fresh
  *    argon2id hash of the password the user just proved.
  *
+ * Both cover POST /sign-in/email and, with username sign-in on, POST
+ * /sign-in/username (the account is found by the normalized username).
+ *
  * Known limit: the failure counter is read-modify-write, so N parallel wrong
  * attempts can count as fewer than N. The IP rate limiter bounds the burst.
  */
@@ -29,19 +32,35 @@ export interface BoilauthPluginOptions {
   hasher: PasswordHasher;
   lockout: LockoutOptions;
   now?: () => Date;
+  /** Set when username sign-in is on: the username plugin's normalization. */
+  normalizeUsername?: (username: string) => string;
 }
 
 const SIGN_IN = "/sign-in/email";
+const SIGN_IN_USERNAME = "/sign-in/username";
 
-function invalidCredentials(): APIError {
-  return APIError.from("UNAUTHORIZED", {
-    code: "INVALID_EMAIL_OR_PASSWORD",
-    message: "Invalid email or password",
-  });
+function invalidCredentials(path: string): APIError {
+  return path === SIGN_IN_USERNAME
+    ? APIError.from("UNAUTHORIZED", { code: "INVALID_USERNAME_OR_PASSWORD", message: "Invalid username or password" })
+    : APIError.from("UNAUTHORIZED", { code: "INVALID_EMAIL_OR_PASSWORD", message: "Invalid email or password" });
 }
+
+type LockFields = { id: string; failedLoginCount?: number | null; lockedUntil?: Date | null };
 
 export function boilauthPlugin(opts: BoilauthPluginOptions) {
   const now = opts.now ?? (() => new Date());
+  const isSignIn = (path: string | undefined) => path === SIGN_IN || (Boolean(opts.normalizeUsername) && path === SIGN_IN_USERNAME);
+  /** The account a sign-in attempt names, or null. Raw row: lock fields are not returned by default. */
+  const target = async (ctx: any): Promise<LockFields | null> => {
+    if (ctx.path === SIGN_IN_USERNAME) {
+      const name = typeof ctx.body?.username === "string" ? ctx.body.username : "";
+      if (!name || !opts.normalizeUsername) return null;
+      return ctx.context.adapter.findOne({ model: "user", where: [{ field: "username", value: opts.normalizeUsername(name) }] });
+    }
+    const email = typeof ctx.body?.email === "string" ? ctx.body.email.toLowerCase() : "";
+    if (!email) return null;
+    return ((await ctx.context.internalAdapter.findUserByEmail(email))?.user as LockFields | undefined) ?? null;
+  };
   return {
     id: "boilauth",
     schema: {
@@ -74,25 +93,22 @@ export function boilauthPlugin(opts: BoilauthPluginOptions) {
     hooks: {
       before: [
         {
-          matcher: (ctx) => ctx.path === SIGN_IN,
+          matcher: (ctx) => isSignIn(ctx.path),
           handler: createAuthMiddleware(async (ctx) => {
-            const email = typeof ctx.body?.email === "string" ? ctx.body.email.toLowerCase() : "";
-            if (!email || opts.lockout.maxFailures <= 0) return;
-            const found = await ctx.context.internalAdapter.findUserByEmail(email);
-            const lockedUntil = (found?.user as { lockedUntil?: Date | null } | undefined)?.lockedUntil;
+            if (opts.lockout.maxFailures <= 0) return;
+            const lockedUntil = (await target(ctx))?.lockedUntil;
             if (lockedUntil && new Date(lockedUntil).getTime() > now().getTime()) {
               // Spend comparable time so a locked account is not a timing oracle.
               await opts.hasher.hash(String(ctx.body?.password ?? ""));
-              throw invalidCredentials();
+              throw invalidCredentials(ctx.path);
             }
           }),
         },
       ],
       after: [
         {
-          matcher: (ctx) => ctx.path === SIGN_IN,
+          matcher: (ctx) => isSignIn(ctx.path),
           handler: createAuthMiddleware(async (ctx) => {
-            const email = typeof ctx.body?.email === "string" ? ctx.body.email.toLowerCase() : "";
             const password = typeof ctx.body?.password === "string" ? ctx.body.password : "";
             const session = ctx.context.newSession;
             const ia = ctx.context.internalAdapter;
@@ -114,15 +130,14 @@ export function boilauthPlugin(opts: BoilauthPluginOptions) {
             const returned = ctx.context.returned as { status?: string; statusCode?: number } | undefined;
             const wasBadPassword =
               returned instanceof APIError && (returned.status === "UNAUTHORIZED" || returned.statusCode === 401);
-            if (!wasBadPassword || !email || opts.lockout.maxFailures <= 0) return;
-            const found = await ia.findUserByEmail(email);
-            if (!found) return;
-            const u = found.user as { failedLoginCount?: number | null; lockedUntil?: Date | null };
+            if (!wasBadPassword || opts.lockout.maxFailures <= 0) return;
+            const u = await target(ctx);
+            if (!u) return;
             const lockedUntil = u.lockedUntil ? new Date(u.lockedUntil) : null;
             if (lockedUntil && lockedUntil.getTime() > now().getTime()) return; // already locked
             const failures = (u.failedLoginCount ?? 0) + 1;
             const lock = failures >= opts.lockout.maxFailures;
-            await ia.updateUser(found.user.id, {
+            await ia.updateUser(u.id, {
               failedLoginCount: lock ? 0 : failures,
               lockedUntil: lock ? new Date(now().getTime() + opts.lockout.lockMinutes * 60_000) : null,
             });

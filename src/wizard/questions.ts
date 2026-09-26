@@ -84,7 +84,12 @@ export const QUESTIONS: Question[] = [
   },
   // B. Sign-in methods
   { key: "signIn.emailPassword", group: "B. Sign-in", type: "confirm", message: "Email + password sign-in?" },
+  {
+    key: "signIn.username", group: "B. Sign-in", type: "confirm", when: pw,
+    message: "Username sign-in too? (rules in boilauth.username.yaml: length, pattern, reserved names, case)",
+  },
   { key: "signIn.magicLink", group: "B. Sign-in", type: "confirm", message: "Magic link sign-in by email?" },
+  { key: "signIn.emailOtp", group: "B. Sign-in", type: "confirm", message: "Sign-in with a one-time code by email? (6 digits, 5 minutes, 3 tries)" },
   {
     key: "signIn.oauth", group: "B. Sign-in", type: "multiselect",
     message: "OAuth providers (space to toggle, none is fine)",
@@ -171,6 +176,11 @@ export const QUESTIONS: Question[] = [
       { value: "totp_optional", label: "Optional for everyone" },
       { value: "totp_required_admin", label: "Required for admins", hint: "needs roles" },
     ],
+  },
+  { key: "mfa.backupCodes", group: "H. MFA", type: "number", when: (a) => pw(a) && a.mfa.mode !== "off", message: "Backup codes per user, each usable once (5..20)" },
+  {
+    key: "mfa.emailOtp", group: "H. MFA", type: "confirm", when: (a) => pw(a) && a.mfa.mode !== "off",
+    message: "Also accept a code sent by email as the second factor? (admin access still needs TOTP or a backup code)",
   },
   // J. Deletion
   {

@@ -33,12 +33,12 @@ const SCENARIOS: Record<string, { answers: Record<string, unknown>; postgres?: b
   },
   "custom-roles-admin-mfa-oauth": {
     answers: {
-      signIn: { emailPassword: true, magicLink: true, oauth: ["google", "github", "apple", "kakao", "naver"] },
+      signIn: { emailPassword: true, magicLink: true, emailOtp: true, oauth: ["google", "github", "apple", "kakao", "naver"] },
       migration: { sources: ["supabase", "auth0"] },
       linking: { mode: "never" },
       password: { breachedCheck: "hibp" },
       session: { days: 30, revokeOnPasswordChange: false },
-      mfa: { mode: "totp_required_admin" },
+      mfa: { mode: "totp_required_admin", backupCodes: 6, emailOtp: true },
       roles: { mode: "custom", custom: ["admin", "editor", "viewer", "user"] },
     },
   },
@@ -55,6 +55,18 @@ const SCENARIOS: Record<string, { answers: Record<string, unknown>; postgres?: b
     answers: {
       situation: { existingUsers: true, currentSignIn: ["email_password", "kakao"], sourceVerifiedEmail: "no", audience: "internal" },
       migration: { sources: ["generic"] },
+    },
+  },
+  "extra-sign-in-methods": {
+    answers: {
+      signIn: { emailPassword: true, username: true, emailOtp: true },
+      lockout: { maxFailures: 4, minutes: 10 },
+    },
+  },
+  "email-otp-only": {
+    answers: {
+      signIn: { emailPassword: false, magicLink: false, emailOtp: true, oauth: [] },
+      roles: { mode: "admin" },
     },
   },
   "magic-link-only-no-roles": {

@@ -1,0 +1,14 @@
+/** Signs in (and signs up) with a one-time code sent by email. */
+export async function signIn(auth: Auth, email: string): Promise<Jar> {
+  const jar: Jar = new Map();
+  const sent = await call(auth, "/email-otp/send-verification-otp", { body: { email, type: "sign-in" } });
+  if (sent.status !== 200) throw new Error(`email otp ${sent.status} ${JSON.stringify(sent.json)}`);
+  const r = await call(auth, "/sign-in/email-otp", { body: { email, otp: lastCode(email) }, jar });
+  if (r.status !== 200) throw new Error(`email otp sign-in ${r.status} ${JSON.stringify(r.json)}`);
+  return jar;
+}
+
+export async function newUser(auth: Auth, tag = "u"): Promise<{ email: string; jar: Jar }> {
+  const email = newEmail(tag);
+  return { email, jar: await signIn(auth, email) };
+}

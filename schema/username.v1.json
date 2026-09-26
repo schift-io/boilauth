@@ -1,0 +1,16 @@
+{
+  "module": "username",
+  "version": 1,
+  "tables": {
+    "user": {
+      "displayUsername": {
+        "type": "string",
+        "required": false
+      },
+      "username": {
+        "type": "string",
+        "required": false
+      }
+    }
+  }
+}

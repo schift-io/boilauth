@@ -4,7 +4,7 @@
  * against; `plugins` is base + the module.
  */
 import { DatabaseSync } from "node:sqlite";
-import { admin, organization, twoFactor } from "better-auth/plugins";
+import { admin, organization, twoFactor, username } from "better-auth/plugins";
 import type { BetterAuthPlugin } from "better-auth";
 import { boilAuthOptions, describeSchema, schemaDelta, type SchemaModule, type TableShape } from "../src/index.js";
 import { requireAdminMfa } from "../src/modules/mfa.js";
@@ -27,6 +27,7 @@ export const MODULE_BUILD: Record<Exclude<SchemaModule, "core">, { base: () => B
   "mfa-admin": { base: () => [admin(), twoFactor()], add: () => [requireAdminMfa()] },
   organization: { base: () => [], add: () => [organization()] },
   "soft-delete": { base: () => [], add: () => [accountDeletion({ mode: "soft", exportData: false })] },
+  username: { base: () => [], add: () => [username()] },
 };
 
 export function liveModuleShape(m: SchemaModule): TableShape {

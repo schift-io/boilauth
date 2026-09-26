@@ -1,0 +1,27 @@
+test("second step by email code: password, then the mailed code; a wrong code is refused", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const user = await h.newUser(auth, "m2e");
+  const email = user.email;
+  let jar = user.jar;
+  if ({{ADMIN_CHECK}}) {
+    await boil.grantRole(auth, email, "admin"); // ends the user's sessions
+    jar = await h.signIn(auth, email);
+  }
+  await enrollTotp(auth, jar);
+  const j: h.Jar = new Map();
+  const first = await h.call(auth, "/sign-in/email", { body: { email, password: h.PW }, jar: j });
+  assert.equal(first.json.twoFactorRedirect, true);
+  assert.equal((await h.call(auth, "/two-factor/send-otp", { body: {}, jar: j })).status, 200);
+  const mail = [...h.outbox].reverse().find((m) => m.to === email && /second-step code is \d{6}/.test(m.text));
+  assert.ok(mail, "code mailed");
+  const code = /(\d{6})/.exec(mail.text)![1];
+  const wrong = code === "000000" ? "111111" : "000000";
+  assert.notEqual((await h.call(auth, "/two-factor/verify-otp", { body: { code: wrong }, jar: j })).status, 200);
+  assert.equal((await h.call(auth, "/two-factor/verify-otp", { body: { code }, jar: j })).status, 200);
+  assert.equal((await h.currentSession(auth, j))?.user.email, email);
+  if ({{ADMIN_CHECK}}) {
+    const denied = await h.call(auth, "/admin/list-users", { jar: j });
+    assert.equal(denied.status, 403, "an email code does not stand in for TOTP on admin endpoints");
+    assert.equal(denied.json.code, "MFA_REQUIRED");
+  }
+});

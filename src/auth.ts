@@ -9,9 +9,10 @@
  * literal values; see docs/EDGE_CASES.md for which key drives which option.
  */
 import { betterAuth, type BetterAuthOptions, type BetterAuthPlugin, type User } from "better-auth";
-import { admin } from "better-auth/plugins";
+import { admin, username as usernamePlugin } from "better-auth/plugins";
 import { createPasswordHasher, type Argon2Params, type FirebaseProjectKey } from "./hash/index.js";
 import { boilauthPlugin, type LockoutOptions } from "./plugin.js";
+import { normalizeUsername, usernamePluginOptions, type UsernameRules } from "./modules/username.js";
 
 export const PRESETS = {
   minPasswordLength: 10,
@@ -62,6 +63,12 @@ export interface BoilAuthOptions {
   /** OAuth identity with an existing email: link when both sides are verified, or never. */
   accountLinking?: "verified_only" | "never";
   socialProviders?: BetterAuthOptions["socialProviders"];
+  /**
+   * Username sign-in (POST /sign-in/username) under these rules, usually from
+   * loadUsernameRules("boilauth.username.yaml"). Lockout, rehash and the sign-in
+   * rate limit cover this path as they cover /sign-in/email.
+   */
+  username?: UsernameRules;
   /** Better Auth's admin plugin (role column). Default true; set false for no roles, or pass your own admin() in plugins. */
   admin?: boolean;
   /** Extra plugins, in order, after boilauth's own. */
@@ -134,6 +141,7 @@ export function boilAuthOptions(o: BoilAuthOptions) {
       customRules: {
         ...PRESETS.rateLimit.customRules,
         "/sign-in/email": { window: 60, max: signInPerMinute },
+        ...(o.username ? { "/sign-in/username": { window: 60, max: signInPerMinute } } : {}),
       },
       ...extra.rateLimit,
     },
@@ -150,7 +158,9 @@ export function boilAuthOptions(o: BoilAuthOptions) {
         hasher,
         lockout: { ...PRESETS.lockout, ...o.lockout },
         now: o.now,
+        ...(o.username ? { normalizeUsername: (u: string) => normalizeUsername(o.username!, u) } : {}),
       }),
+      ...(o.username ? [usernamePlugin(usernamePluginOptions(o.username))] : []),
       ...(wantsAdmin ? [admin()] : []),
       ...userPlugins,
       ...(extra.plugins ?? []),

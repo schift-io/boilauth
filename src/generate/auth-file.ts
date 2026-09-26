@@ -12,6 +12,7 @@ export function needsSessionPolicy(a: Answers): boolean {
 
 export function authFile(a: Answers): string {
   const pw = a.signIn.emailPassword;
+  const username = pw && a.signIn.username;
   const bePlugins: string[] = [];
   const lines: string[] = [];
   const plugins: string[] = [];
@@ -21,6 +22,7 @@ export function authFile(a: Answers): string {
   if (a.roles.mode === "custom") lines.push('import { ac, roles } from "./permissions.js";');
   if (a.roles.mode === "organizations") bePlugins.push("organization");
   if (a.signIn.magicLink) bePlugins.push("magicLink");
+  if (a.signIn.emailOtp) bePlugins.push("emailOTP");
   if (pw && a.password.breachedCheck === "hibp") bePlugins.push("haveIBeenPwned");
   if (a.mfa.mode !== "off") bePlugins.push("twoFactor");
 
@@ -37,8 +39,30 @@ export function authFile(a: Answers): string {
   if (a.signIn.magicLink) {
     plugins.push(`magicLink({ sendMagicLink: async ({ email, url }) => d.email({ to: email, subject: "Your sign-in link", text: url }) })`);
   }
+  if (a.signIn.emailOtp) {
+    plugins.push(`emailOTP({
+      otpLength: 6,
+      expiresIn: 300,
+      allowedAttempts: 3,
+      storeOTP: "hashed",
+      sendVerificationOTP: async ({ email, otp }) => d.email({ to: email, subject: "Your sign-in code", text: \`Your code is \${otp}. It expires in 5 minutes.\` }),
+    })`);
+  }
   if (pw && a.password.breachedCheck === "hibp") plugins.push("haveIBeenPwned()");
-  if (a.mfa.mode !== "off") plugins.push("twoFactor({ issuer: new URL(d.baseURL).hostname })");
+  if (a.mfa.mode !== "off") {
+    const tf = ["issuer: new URL(d.baseURL).hostname"];
+    if (a.mfa.backupCodes !== 10) tf.push(`backupCodeOptions: { amount: ${a.mfa.backupCodes} }`);
+    if (a.mfa.emailOtp) {
+      tf.push(`otpOptions: {
+        digits: 6,
+        period: 5,
+        allowedAttempts: 3,
+        storeOTP: "hashed",
+        sendOTP: async ({ user, otp }) => d.email({ to: user.email, subject: "Your sign-in code", text: \`Your second-step code is \${otp}. It expires in 5 minutes.\` }),
+      }`);
+    }
+    plugins.push(tf.length === 1 ? `twoFactor({ ${tf[0]} })` : `twoFactor({\n      ${tf.join(",\n      ")},\n    })`);
+  }
   if (a.mfa.mode === "totp_required_admin") {
     lines.push('import { requireAdminMfa } from "boilauth/mfa";');
     plugins.push('requireAdminMfa({ adminRoles: ["admin"] })');
@@ -61,6 +85,7 @@ export function authFile(a: Answers): string {
   const imports = [
     'import { createBoilAuth, type BoilAuthOptions, type EmailMessage } from "boilauth";',
     ...(bePlugins.length ? [`import { ${bePlugins.join(", ")} } from "better-auth/plugins";`] : []),
+    ...(username ? ['import type { UsernameRules } from "boilauth/username";'] : []),
     ...lines,
   ].join("\n");
 
@@ -79,6 +104,7 @@ export function authFile(a: Answers): string {
     opts.push(`lockout: { maxFailures: ${a.lockout.maxFailures}, lockMinutes: ${a.lockout.minutes} }`);
   }
   if (a.migration.sources.includes("firebase")) opts.push("firebaseKeys: d.firebaseKeys");
+  if (username) opts.push("username: d.usernameRules");
   if (oauth.length) {
     opts.push(`accountLinking: ${JSON.stringify(a.linking.mode)}`);
     opts.push("socialProviders: d.oauth");
@@ -96,9 +122,9 @@ export interface AuthDeps {
   database: BoilAuthOptions["database"];
   secret: string;
   baseURL: string;
-  /** Sends verification, reset${a.signIn.magicLink ? ", magic link" : ""}${a.roles.mode === "organizations" ? ", invitation" : ""} mail. See src/email.ts. */
+  /** Sends verification, reset${a.signIn.magicLink ? ", magic link" : ""}${a.signIn.emailOtp ? ", one-time code" : ""}${a.roles.mode === "organizations" ? ", invitation" : ""} mail. See src/email.ts. */
   email: (msg: EmailMessage) => Promise<void>;
-${a.migration.sources.includes("firebase") ? '  firebaseKeys?: BoilAuthOptions["firebaseKeys"];\n' : ""}${oauthType}  betterAuth?: BoilAuthOptions["betterAuth"];
+${a.migration.sources.includes("firebase") ? '  firebaseKeys?: BoilAuthOptions["firebaseKeys"];\n' : ""}${username ? "  /** boilauth.username.yaml, loaded with loadUsernameRules(). */\n  usernameRules: UsernameRules;\n" : ""}${oauthType}  betterAuth?: BoilAuthOptions["betterAuth"];
 }
 
 export function createAuth(d: AuthDeps) {
@@ -139,8 +165,11 @@ export function configFile(a: Answers): string {
         .map((p) => `    ${p}: { clientId: need("${ENV_OAUTH[p]}_CLIENT_ID"), clientSecret: need("${ENV_OAUTH[p]}_CLIENT_SECRET") },`)
         .join("\n")}\n  },\n`
     : "";
+  const username = a.signIn.emailPassword && a.signIn.username;
+  const usernameImport = username ? 'import { loadUsernameRules } from "boilauth/username";\n' : "";
+  const usernameDep = username ? '  usernameRules: loadUsernameRules(new URL("./boilauth.username.yaml", import.meta.url)),\n' : "";
   return `${HEADER}// The instance your app mounts and the boilauth CLI uses (--config boilauth.config.ts).
-${db}import { createAuth } from "./src/auth.js";
+${db}${usernameImport}import { createAuth } from "./src/auth.js";
 import { sendEmail } from "./src/email.js";
 
 function need(name: string): string {
@@ -154,7 +183,7 @@ export default createAuth({
   secret: need("BOILAUTH_SECRET"),
   baseURL: process.env.BOILAUTH_URL ?? "http://localhost:3000",
   email: sendEmail,
-${firebase}${oauth}});
+${firebase}${usernameDep}${oauth}});
 `;
 }
 

@@ -27,6 +27,7 @@ export const MODULE_VERSIONS = {
   "mfa-admin": 1,
   organization: 1,
   "soft-delete": 1,
+  username: 1,
 } as const;
 
 export type SchemaModule = keyof typeof MODULE_VERSIONS;
@@ -64,6 +65,7 @@ export function enabledModules(options: BetterAuthOptions): SchemaModule[] {
   if (has("boilauth-mfa-admin")) out.push("mfa-admin");
   if (has("organization")) out.push("organization");
   if (plugins.some((p) => p.id === "boilauth-deletion" && p.schema)) out.push("soft-delete");
+  if (has("username")) out.push("username");
   return out;
 }
 

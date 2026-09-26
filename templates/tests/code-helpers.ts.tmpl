@@ -1,0 +1,6 @@
+/** The newest numeric code mailed to `to` (email OTP). */
+export function lastCode(to: string): string {
+  const m = [...outbox].reverse().find((x) => x.to === to && /\b\d{4,10}\b/.test(x.text));
+  if (!m) throw new Error(`no code mailed to ${to}`);
+  return /\b(\d{4,10})\b/.exec(m.text)![1];
+}

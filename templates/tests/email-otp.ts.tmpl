@@ -1,0 +1,37 @@
+test("email code: mail a 6-digit code, sign in with it; the code works once", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const email = h.newEmail("otp");
+  assert.equal((await h.call(auth, "/email-otp/send-verification-otp", { body: { email, type: "sign-in" } })).status, 200);
+  const code = h.lastCode(email);
+  assert.match(code, /^\d{6}$/);
+  const jar: h.Jar = new Map();
+  const ok = await h.call(auth, "/sign-in/email-otp", { body: { email, otp: code }, jar });
+  assert.equal(ok.status, 200, JSON.stringify(ok.json));
+  assert.equal((await h.currentSession(auth, jar))?.user.email, email);
+  const again = await h.call(auth, "/sign-in/email-otp", { body: { email, otp: code } });
+  assert.notEqual(again.status, 200, "second use of the same code");
+});
+
+test("email code: 3 wrong codes use up the code, the right one is then refused", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const email = h.newEmail("otpx");
+  await h.call(auth, "/email-otp/send-verification-otp", { body: { email, type: "sign-in" } });
+  const code = h.lastCode(email);
+  const wrong = code === "000000" ? "111111" : "000000";
+  for (let i = 0; i < 3; i++) assert.notEqual((await h.call(auth, "/sign-in/email-otp", { body: { email, otp: wrong } })).status, 200);
+  const late = await h.call(auth, "/sign-in/email-otp", { body: { email, otp: code } });
+  assert.equal(late.status, 403, JSON.stringify(late.json));
+  assert.equal(late.json.code, "TOO_MANY_ATTEMPTS");
+});
+
+test("email code: stored hashed, never as the plain code", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const email = h.newEmail("otph");
+  await h.call(auth, "/email-otp/send-verification-otp", { body: { email, type: "sign-in" } });
+  const code = h.lastCode(email);
+  const ctx = await auth.$context;
+  const rows = (await ctx.adapter.findMany({ model: "verification" })) as { identifier: string; value: string }[];
+  const row = rows.find((r) => r.identifier.includes(email));
+  assert.ok(row, "a verification row exists for the code");
+  assert.ok(!row.value.includes(code), "plain code is not stored");
+});
