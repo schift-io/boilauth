@@ -25,6 +25,8 @@ export interface Question {
 const pw = (a: Answers) => a.signIn.emailPassword;
 const hasFirebase = (a: Answers) => pw(a) && a.migration.sources.includes("firebase");
 const existing = (a: Answers) => a.situation.existingUsers;
+/** Any endpoint that sends mail or SMS to an address the request names. */
+const sends = (a: Answers) => a.signIn.emailPassword || a.signIn.magicLink || a.signIn.emailOtp || a.signIn.phone;
 const OAUTH_OPTIONS = [
   { value: "google", label: "Google" },
   { value: "github", label: "GitHub" },
@@ -136,6 +138,22 @@ export const QUESTIONS: Question[] = [
   { key: "lockout.maxFailures", group: "G. Lockout and sessions", type: "number", when: pw, message: "Lock after how many wrong passwords (0 = off)" },
   { key: "lockout.minutes", group: "G. Lockout and sessions", type: "number", when: (a) => pw(a) && a.lockout.maxFailures > 0, message: "Lock for how many minutes" },
   { key: "rateLimit.signInPerMinute", group: "G. Lockout and sessions", type: "number", message: "Sign-in attempts per IP per minute" },
+  {
+    key: "rateLimit.sendPerIpPerHour", group: "G. Lockout and sessions", type: "number", when: sends,
+    message: "Mail/SMS sends (codes, links, resets) per IP per hour on each send endpoint (0 = Better Auth's per-minute default)",
+  },
+  {
+    key: "rateLimit.sendPerAccountPerHour", group: "G. Lockout and sessions", type: "number", when: sends,
+    message: "Mail/SMS sends per email address or phone number per hour, from any IP (0 = off)",
+  },
+  {
+    key: "rateLimit.storage", group: "G. Lockout and sessions", type: "select",
+    message: "Where rate-limit counters live",
+    options: [
+      { value: "database", label: "Database", hint: "shared by every instance" },
+      { value: "memory", label: "Memory", hint: "one process only; no writes per request" },
+    ],
+  },
   { key: "session.days", group: "G. Lockout and sessions", type: "number", message: "Session lifetime in days (1..90)" },
   { key: "session.revokeOnPasswordChange", group: "G. Lockout and sessions", type: "confirm", when: pw, message: "End other sessions when the password changes?" },
   {

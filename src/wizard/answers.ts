@@ -33,7 +33,7 @@ export interface Answers {
   linking: { mode: "verified_only" | "never" };
   password: { minLength: number; breachedCheck: "off" | "hibp" };
   lockout: { maxFailures: number; minutes: number };
-  rateLimit: { signInPerMinute: number };
+  rateLimit: { signInPerMinute: number; sendPerIpPerHour: number; sendPerAccountPerHour: number; storage: "database" | "memory" };
   session: { days: number; revokeOnPasswordChange: boolean; devices: "multi" | "single" };
   mfa: { mode: "off" | "totp_optional" | "totp_required_admin"; backupCodes: number; emailOtp: boolean };
   roles: { mode: "none" | "admin" | "custom" | "organizations"; custom: string[]; orgCreation: "any_user" | "admin_only" };
@@ -50,7 +50,7 @@ export const DEFAULT_ANSWERS: Answers = {
   linking: { mode: "verified_only" },
   password: { minLength: 10, breachedCheck: "off" },
   lockout: { maxFailures: 5, minutes: 15 },
-  rateLimit: { signInPerMinute: 10 },
+  rateLimit: { signInPerMinute: 10, sendPerIpPerHour: 10, sendPerAccountPerHour: 5, storage: "database" },
   session: { days: 7, revokeOnPasswordChange: true, devices: "multi" },
   mfa: { mode: "off", backupCodes: 10, emailOtp: false },
   roles: { mode: "admin", custom: ["admin", "editor", "user"], orgCreation: "any_user" },
@@ -93,6 +93,9 @@ export function validateAnswers(a: Answers): string[] {
   int(a.lockout.maxFailures, 0, 100, "lockout.maxFailures");
   int(a.lockout.minutes, 1, 1440, "lockout.minutes");
   int(a.rateLimit.signInPerMinute, 1, 1000, "rateLimit.signInPerMinute");
+  int(a.rateLimit.sendPerIpPerHour, 0, 1000, "rateLimit.sendPerIpPerHour");
+  int(a.rateLimit.sendPerAccountPerHour, 0, 1000, "rateLimit.sendPerAccountPerHour");
+  if (!["database", "memory"].includes(a.rateLimit.storage)) errs.push(`rateLimit.storage: unknown ${a.rateLimit.storage}`);
   int(a.session.days, 1, 90, "session.days");
   int(a.mfa.backupCodes, 5, 20, "mfa.backupCodes");
   int(a.migration.firebase.rounds, 1, 64, "migration.firebase.rounds");

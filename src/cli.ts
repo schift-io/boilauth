@@ -38,7 +38,7 @@ import { planProject, writeProject } from "./generate/project.js";
 
 const ANSWERS_FILE = "boilauth.answers.json";
 
-export const VERSION = "0.2.0";
+export const VERSION = "0.3.0";
 
 function defaultConfig(): string {
   return existsSync("boilauth.config.ts") ? "boilauth.config.ts" : "boilauth.config.mjs";

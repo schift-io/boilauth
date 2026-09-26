@@ -6,6 +6,7 @@
 import { readFileSync } from "node:fs";
 import type { Answers } from "../wizard/answers.js";
 import { enabledModulesFor } from "./modules.js";
+import { needsSendLimits, sendEndpoint } from "./auth-file.js";
 
 const TPL = new URL("../../templates/tests/", import.meta.url);
 
@@ -166,6 +167,13 @@ export function testFile(a: Answers): string {
     const hosts = Object.fromEntries(a.signIn.oauth.map((p) => [p, OAUTH_HOSTS[p]]));
     blocks.push(tpl("oauth", { OAUTH_HOSTS: JSON.stringify(hosts) }));
     blocks.push(tpl("linking", { LINKING: a.linking.mode, LINK_VERIFIED: a.linking.mode === "verified_only" }));
+  }
+  if (needsSendLimits(a)) {
+    const ep = sendEndpoint(a)!;
+    const vars = { SEND_PATH: ep.path, NEW_DEST: ep.newDest, BODY: ep.body("d"), BODY_OTHER: ep.body("other") };
+    blocks.push(tpl("rate-limit-helpers"));
+    if (a.rateLimit.sendPerIpPerHour > 0) blocks.push(tpl("rate-limit-ip", { ...vars, PER_IP: a.rateLimit.sendPerIpPerHour }));
+    if (a.rateLimit.sendPerAccountPerHour > 0) blocks.push(tpl("rate-limit-account", { ...vars, PER_ACCOUNT: a.rateLimit.sendPerAccountPerHour }));
   }
   blocks.push(tpl("sessions", { DAYS: a.session.days, DEVICES: a.session.devices, FIRST_ALIVE: a.session.devices === "multi" }));
   if (pw && a.session.devices === "multi") {

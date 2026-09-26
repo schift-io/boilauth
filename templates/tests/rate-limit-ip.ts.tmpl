@@ -1,0 +1,14 @@
+test("{{SEND_PATH}}: {{PER_IP}} sends per IP per hour, then 429 with Retry-After", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const ip = h.nextIp();
+  for (let i = 0; i < {{PER_IP}}; i++) {
+    const d = {{NEW_DEST}};
+    assert.equal((await sendRaw(auth, "{{SEND_PATH}}", {{BODY}}, ip)).status, 200, `send ${i + 1}`);
+  }
+  const d = {{NEW_DEST}};
+  const over = await sendRaw(auth, "{{SEND_PATH}}", {{BODY}}, ip);
+  assert.equal(over.status, 429);
+  const after = Number(over.headers.get("retry-after"));
+  assert.ok(after > 0 && after <= 3600, `Retry-After ${after}`);
+  assert.equal((await sendRaw(auth, "{{SEND_PATH}}", {{BODY}}, h.nextIp())).status, 200, "another IP is unaffected");
+});

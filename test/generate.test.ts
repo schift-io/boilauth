@@ -69,6 +69,13 @@ const SCENARIOS: Record<string, { answers: Record<string, unknown>; postgres?: b
       roles: { mode: "admin" },
     },
   },
+  "send-limits-memory-otp-phone": {
+    answers: {
+      signIn: { emailPassword: false, magicLink: false, emailOtp: true, phone: true },
+      rateLimit: { sendPerIpPerHour: 3, sendPerAccountPerHour: 2, storage: "memory" },
+      roles: { mode: "none" },
+    },
+  },
   "magic-link-only-no-roles": {
     answers: {
       signIn: { emailPassword: false, magicLink: true, oauth: [] },

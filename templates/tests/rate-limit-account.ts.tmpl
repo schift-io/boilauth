@@ -1,0 +1,15 @@
+test("{{SEND_PATH}}: {{PER_ACCOUNT}} sends per address per hour across IPs, then 429 with RateLimit headers", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const d = {{NEW_DEST}};
+  for (let i = 0; i < {{PER_ACCOUNT}}; i++) {
+    assert.equal((await sendRaw(auth, "{{SEND_PATH}}", {{BODY}}, h.nextIp())).status, 200, `send ${i + 1}`);
+  }
+  const over = await sendRaw(auth, "{{SEND_PATH}}", {{BODY}}, h.nextIp());
+  assert.equal(over.status, 429, "a new IP does not reset the address's count");
+  assert.ok(Number(over.headers.get("retry-after")) > 0);
+  assert.equal(over.headers.get("ratelimit-limit"), "{{PER_ACCOUNT}}");
+  assert.equal(over.headers.get("ratelimit-remaining"), "0");
+  assert.equal(over.headers.get("ratelimit-policy"), "{{PER_ACCOUNT}};w=3600");
+  const other = {{NEW_DEST}};
+  assert.equal((await sendRaw(auth, "{{SEND_PATH}}", {{BODY_OTHER}}, h.nextIp())).status, 200, "another address is unaffected");
+});

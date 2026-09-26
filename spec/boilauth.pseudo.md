@@ -38,9 +38,25 @@ after 401 for an existing user (not already locked):
 ```
 Known limit: counter is read-modify-write (parallel failures may under-count). IP rate limit [L2] bounds bursts.
 
+## [L3] Send limits — `boilauth/rate-limit` (src/modules/rate-limit.ts)
+Engine = Better Auth's limiter; the plugin adds rateLimit rules and is placed first in plugins so its
+rules win over magicLink/emailOTP/phoneNumber's own (Better Auth takes the first plugin match).
+per IP:      each SEND_PATH, window 3600, max perIpPerHour (Better Auth key = IP + path)
+per address: onRequest (after Better Auth's IP check), POST to a SEND_PATH with body.email / body.phoneNumber
+             dest = email trimmed+lowercased | phone only when E.164 (malformed is refused before any SMS)
+             key = "boilauth-send:" + sha256(dest), one bucket across all send endpoints
+             fixed window 3600: row missing -> create count 1; expired -> reset (lastRequest <= seen);
+             else incrementOne where lastRequest > now-3600 and count < max; none updated -> 429
+             storage follows rateLimit.storage (rateLimit table or process memory)
+429 (per address): Retry-After, X-Retry-After, RateLimit-Limit, -Remaining 0, -Reset, -Policy "<max>;w=3600"
+429 (Better Auth's own): createBoilAuth wraps handler, copies X-Retry-After into Retry-After
+Without the module: core keeps /request-password-reset at 3 per 5 min per IP; other sends keep Better Auth's rules.
+The plugin always registers one hour-long rule so Better Auth's row pruning keeps per-address rows for the full hour.
+
 ## [L2] Rate limit — Better Auth built-in, preset values in `src/auth.ts`
 
-storage = database. /sign-in/email 10 per 60 s per IP. /request-password-reset 3 per 300 s.
+storage = database (or memory: rateLimit.storage). /sign-in/email 10 per 60 s per IP. /request-password-reset 3 per 300 s
+(replaced by the hourly rule when boilauth/rate-limit is on). Every 429 carries Retry-After.
 Better Auth's built-in 3 per 10 s stays for /sign-up*, /change-password*, /change-email*.
 
 ## [R1] Transparent rehash

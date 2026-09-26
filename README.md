@@ -10,7 +10,7 @@ upgraded to argon2id on that first login.
 - Engine: [Better Auth](https://better-auth.com) (sessions, cookies, origin checks, DB adapters).
   boilauth does not implement its own auth crypto; it composes argon2id
   (`@node-rs/argon2`), bcrypt (`bcryptjs`) and Node's built-in scrypt/AES.
-- Status: **0.2.0, pre-release.** Not published to npm yet.
+- Status: **0.3.0, pre-release.** On npm as `boilauth` (0.2.0 published; 0.3.0 not yet).
 - License: MIT.
 
 ## 5-minute start
@@ -76,6 +76,9 @@ they set the defaults of the policy questions, which are all still asked.
 | F | `password.breachedCheck` | **off** / hibp |
 | G | `lockout.maxFailures`, `lockout.minutes` | **5**, **15** (0 = off) |
 | G | `rateLimit.signInPerMinute` | **10** |
+| G | `rateLimit.sendPerIpPerHour` | **10** per send endpoint (0 = Better Auth's per-minute rules) |
+| G | `rateLimit.sendPerAccountPerHour` | **5** per email or phone number, any IP (0 = off) |
+| G | `rateLimit.storage` | **database** / memory |
 | G | `session.days` | **7** (1..90) |
 | G | `session.revokeOnPasswordChange` | **yes** / no |
 | G | `session.devices` | **multi** / single |
@@ -282,6 +285,11 @@ A test fails if any module's live columns drift from its file.
 - Lockout and rate limit are both on by default; lockout does not reveal whether
   an email exists. Known limit: the lockout counter is read-modify-write, so a burst
   of parallel wrong guesses can count as fewer; the IP rate limit bounds that burst.
+- Mail and SMS sends (reset, verification, magic link, email and SMS codes) are limited per IP
+  and per destination address (`boilauth/rate-limit`, default 10 per IP and 5 per address per
+  hour), so one address cannot be flooded from many IPs. Trade-off: anyone can use up an
+  address's hourly quota, which delays that user's own reset mail for up to an hour. Every 429
+  carries `Retry-After`. Counters live in the database by default, so every instance shares them.
 - Security advisories: `npx boilauth check-updates --feed <url>` fetches an
   advisory JSON and compares versions locally. It runs only when you invoke it
   (or set `BOILAUTH_UPDATE_CHECK=1` and `BOILAUTH_ADVISORY_URL`) and sends nothing

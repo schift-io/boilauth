@@ -178,3 +178,15 @@ test("init adds what it needs to an existing package.json and keeps the develope
   const again = mergePackageJson(text, packageJson(DEFAULT_ANSWERS));
   assert.deepEqual(again.added, [], "second init adds nothing");
 });
+
+test("boilauth/rate-limit is imported only when a send endpoint exists and a send limit is on", () => {
+  const auth = (answers: object) => planProject(normalizeAnswers(answers)).find((f) => f.path === "src/auth.ts")!.content;
+  assert.match(auth({}), /import \{ sendLimits \} from "boilauth\/rate-limit";/);
+  assert.match(auth({}), /sendLimits\(\{ perIpPerHour: 10, perAccountPerHour: 5 \}\)/);
+  assert.ok(!auth({ rateLimit: { sendPerIpPerHour: 0, sendPerAccountPerHour: 0 } }).includes("boilauth/rate-limit"), "both limits off");
+  const oauthOnly = { signIn: { emailPassword: false, magicLink: false, oauth: ["github"] } };
+  assert.ok(!auth(oauthOnly).includes("boilauth/rate-limit"), "no send endpoint");
+  assert.ok(!auth({}).includes("rateLimitStorage"), "database is the default and is not written");
+  assert.match(auth({ rateLimit: { storage: "memory" } }), /rateLimitStorage: "memory"/);
+  assert.match(validateAnswers(normalizeAnswers({ rateLimit: { storage: "redis" } })).join(), /rateLimit.storage/);
+});

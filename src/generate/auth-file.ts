@@ -10,6 +10,20 @@ export function needsSessionPolicy(a: Answers): boolean {
   return a.session.devices === "single" || (a.signIn.emailPassword && a.session.revokeOnPasswordChange);
 }
 
+/** The send endpoint the generated tests exercise, or null when the project sends no mail or SMS to a named address. */
+export function sendEndpoint(a: Answers): { path: string; newDest: string; body: (d: string) => string } | null {
+  if (a.signIn.emailPassword) return { path: "/request-password-reset", newDest: 'h.newEmail("rl")', body: (d) => `{ email: ${d} }` };
+  if (a.signIn.magicLink) return { path: "/sign-in/magic-link", newDest: 'h.newEmail("rl")', body: (d) => `{ email: ${d}, callbackURL: "/" }` };
+  if (a.signIn.emailOtp) return { path: "/email-otp/send-verification-otp", newDest: 'h.newEmail("rl")', body: (d) => `{ email: ${d}, type: "sign-in" }` };
+  if (a.signIn.phone) return { path: "/phone-number/send-otp", newDest: "h.newPhone()", body: (d) => `{ phoneNumber: ${d} }` };
+  return null;
+}
+
+/** boilauth/rate-limit is imported only when there is a send endpoint and a send limit is on. */
+export function needsSendLimits(a: Answers): boolean {
+  return sendEndpoint(a) !== null && (a.rateLimit.sendPerIpPerHour > 0 || a.rateLimit.sendPerAccountPerHour > 0);
+}
+
 export function authFile(a: Answers): string {
   const pw = a.signIn.emailPassword;
   const username = pw && a.signIn.username;
@@ -67,6 +81,10 @@ export function authFile(a: Answers): string {
     lines.push('import { requireAdminMfa } from "boilauth/mfa";');
     plugins.push('requireAdminMfa({ adminRoles: ["admin"] })');
   }
+  if (needsSendLimits(a)) {
+    lines.push('import { sendLimits } from "boilauth/rate-limit";');
+    plugins.push(`sendLimits({ perIpPerHour: ${a.rateLimit.sendPerIpPerHour}, perAccountPerHour: ${a.rateLimit.sendPerAccountPerHour} })`);
+  }
   lines.push('import { accountDeletion } from "boilauth/deletion";');
   plugins.push(`accountDeletion({ mode: ${JSON.stringify(a.deletion.mode)}, exportData: ${a.deletion.export} })`);
   if (needsSessionPolicy(a)) {
@@ -97,6 +115,7 @@ export function authFile(a: Answers): string {
     "sendEmail: d.email",
     `requireEmailVerification: ${pw && a.email.verification === "required"}`,
     `rateLimitSignInPerMinute: ${a.rateLimit.signInPerMinute}`,
+    ...(a.rateLimit.storage === "memory" ? ['rateLimitStorage: "memory"'] : []),
     `sessionDays: ${a.session.days}`,
   ];
   if (pw) {

@@ -1,0 +1,12 @@
+/** POST straight to the handler so the test sees the response headers. */
+async function sendRaw(auth: h.Auth, path: string, body: unknown, ip: string): Promise<Response> {
+  const res = await auth.handler(
+    new Request(`${h.BASE}/api/auth${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: h.BASE, "x-forwarded-for": ip },
+      body: JSON.stringify(body),
+    }),
+  );
+  await res.text();
+  return res;
+}

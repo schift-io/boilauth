@@ -14,6 +14,7 @@ import { createPasswordHasher, type Argon2Params, type FirebaseProjectKey } from
 import { boilauthPlugin, type LockoutOptions } from "./plugin.js";
 import { normalizeUsername, usernamePluginOptions, type UsernameRules } from "./modules/username.js";
 import { phonePlugin, type PhoneOptions } from "./modules/phone.js";
+import { SEND_LIMIT_PLUGIN_ID, withRateLimitHeaders } from "./modules/rate-limit.js";
 
 export const PRESETS = {
   minPasswordLength: 10,
@@ -31,6 +32,7 @@ export const PRESETS = {
     // /change-email* (3 per 10 s per IP) stays active.
     customRules: {
       "/sign-in/email": { window: 60, max: 10 },
+      // Without boilauth/rate-limit; with it, that module's hourly rule applies instead.
       "/request-password-reset": { window: 300, max: 3 },
     },
   },
@@ -56,6 +58,8 @@ export interface BoilAuthOptions {
   /** maxFailures 0 turns lockout off. */
   lockout?: Partial<LockoutOptions>;
   rateLimitSignInPerMinute?: number;
+  /** Where rate-limit counters live. "database" (default) is shared by every instance; "memory" is per process. */
+  rateLimitStorage?: "database" | "memory";
   sessionDays?: number;
   /** Require a verified email before password sign-in (default true when an email sender is set). */
   requireEmailVerification?: boolean;
@@ -103,6 +107,9 @@ export function boilAuthOptions(o: BoilAuthOptions) {
   const userPlugins = o.plugins ?? [];
   const wantsAdmin = (o.admin ?? true) && !userPlugins.some((p) => p.id === "admin");
   const signInPerMinute = o.rateLimitSignInPerMinute ?? PRESETS.rateLimit.customRules["/sign-in/email"].max;
+  // boilauth/rate-limit goes first so its per-IP rules win over later plugins' own (Better Auth takes the first match).
+  const sendLimit = userPlugins.find((p) => p.id === SEND_LIMIT_PLUGIN_ID);
+  const { "/request-password-reset": resetRule, ...coreRules } = PRESETS.rateLimit.customRules;
   const options = {
     database: o.database,
     secret: o.secret,
@@ -138,11 +145,12 @@ export function boilAuthOptions(o: BoilAuthOptions) {
     },
     rateLimit: {
       enabled: true,
-      storage: "database" as const,
+      storage: o.rateLimitStorage ?? ("database" as const),
       window: PRESETS.rateLimit.window,
       max: PRESETS.rateLimit.max,
       customRules: {
-        ...PRESETS.rateLimit.customRules,
+        ...coreRules,
+        ...(sendLimit ? {} : { "/request-password-reset": resetRule }),
         "/sign-in/email": { window: 60, max: signInPerMinute },
         ...(o.username ? { "/sign-in/username": { window: 60, max: signInPerMinute } } : {}),
         ...(o.phone ? { "/sign-in/phone-number": { window: 60, max: signInPerMinute } } : {}),
@@ -158,6 +166,7 @@ export function boilAuthOptions(o: BoilAuthOptions) {
       },
     },
     plugins: [
+      ...(sendLimit ? [sendLimit] : []),
       boilauthPlugin({
         hasher,
         lockout: { ...PRESETS.lockout, ...o.lockout },
@@ -168,7 +177,7 @@ export function boilAuthOptions(o: BoilAuthOptions) {
       ...(o.username ? [usernamePlugin(usernamePluginOptions(o.username))] : []),
       ...(o.phone ? [phonePlugin(o.phone)] : []),
       ...(wantsAdmin ? [admin()] : []),
-      ...userPlugins,
+      ...userPlugins.filter((p) => p !== sendLimit),
       ...(extra.plugins ?? []),
     ],
   } satisfies BetterAuthOptions;
@@ -178,7 +187,8 @@ export function boilAuthOptions(o: BoilAuthOptions) {
 export function createBoilAuth(o: BoilAuthOptions) {
   const { options, hasher } = boilAuthOptions(o);
   const auth = betterAuth(options);
-  return Object.assign(auth, { boilauth: { hasher, options, input: o } });
+  // Better Auth's own 429 carries only X-Retry-After; add the standard header.
+  return Object.assign(auth, { handler: withRateLimitHeaders(auth.handler), boilauth: { hasher, options, input: o } });
 }
 
 export type BoilAuth = ReturnType<typeof createBoilAuth>;

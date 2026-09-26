@@ -96,9 +96,18 @@ Either way a verification mail is sent on sign-up. Import merges always need ver
 | Consecutive wrong passwords | `lockout.maxFailures` | number, **5** (0 = off) | core | L1 |
 | Lock duration | `lockout.minutes` | number, **15** | core | L1 |
 | Sign-in attempts per IP | `rateLimit.signInPerMinute` | number, **10** | core | L2 |
+| Mail/SMS sends per IP (only with a send endpoint) | `rateLimit.sendPerIpPerHour` | number 0..1000, **10** per hour per send endpoint (0 = Better Auth's per-minute rules) | `boilauth/rate-limit` | L3 |
+| Mail/SMS sends per address (only with a send endpoint) | `rateLimit.sendPerAccountPerHour` | number 0..1000, **5** per hour per email or phone number, from any IP (0 = off) | `boilauth/rate-limit` | L3 |
+| Where counters live | `rateLimit.storage` | **`database`** (shared by every instance) / `memory` (one process) | core | L2 |
 | Session lifetime | `session.days` | number 1..90, **7** | core | S1 |
 | Password change | `session.revokeOnPasswordChange` | **yes** (other sessions end) / no | `boilauth/sessions` | S2 |
 | Devices | `session.devices` | **`multi`** / `single` (a new sign-in ends the other sessions) | `boilauth/sessions` | S3 |
+
+Send endpoints are `/request-password-reset`, `/send-verification-email`, `/sign-in/magic-link`,
+`/email-otp/send-verification-otp`, `/email-otp/request-password-reset`, `/forget-password/email-otp`,
+`/phone-number/send-otp` and `/phone-number/request-password-reset`. Every 429 carries `Retry-After`;
+the per-address 429 also carries `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset` and
+`RateLimit-Policy`. With both send limits at 0 (or no send endpoint) `boilauth/rate-limit` is not imported.
 
 A fresh session token on every sign-in and ending all sessions on password reset are always on (not asked).
 
