@@ -1,0 +1,54 @@
+id	flow	provider	given	when	then	status	evidence
+AU-01	가입	sqlite,postgres	기본(init --yes): 이메일+비밀번호, 인증 필수	새 이메일·12자 이상 비밀번호로 가입	계정 생성, 비밀번호 argon2id 저장, 인증 메일 1통 발송, 인증 전 로그인 403	구현됨·미실측	
+AU-02	가입	sqlite,postgres	AU-01	11자 비밀번호로 가입	거절(최소 길이 12), 계정 없음	구현됨·미실측	
+AU-03	가입	sqlite,postgres	email.verification=optional, 이미 있는 이메일	같은 이메일로 다시 가입	새 가입과 같은 응답(가입 여부 노출 없음), 계정 추가 없음	구현됨·미실측	
+AU-04	가입	sqlite,postgres	password.breachedCheck=hibp	유출된 비밀번호로 가입	거절, 비밀번호 원문은 외부로 안 나감(k-익명 범위 조회)	구현됨·미실측	
+AU-05	로그인	sqlite,postgres	인증된 계정	맞는 비밀번호로 로그인	세션 발급(새 토큰), 7일 유효, 활동과 무관하게 최대 30일	구현됨·미실측	
+AU-06	로그인	sqlite,postgres	인증 안 된 계정, verification=required	로그인	403, 세션 없음	구현됨·미실측	
+AU-07	이메일 인증	sqlite,postgres	AU-01 인증 메일	링크 열기	이메일 인증됨, 이후 로그인 가능	구현됨·미실측	
+LK-01	잠금	sqlite,postgres	한 IP에서 한 계정에 틀린 비밀번호	5번 연속 실패	그 IP는 그 계정에 15분 잠김, 다른 IP는 계속 시도 가능	구현됨·미실측	
+LK-02	잠금	sqlite,postgres	여러 IP에서 한 계정에 틀린 비밀번호	합계 20번 실패	최근 90일 로그인 성공 기록 없는 곳은 15분간 거절, 알던 기기는 로그인 가능, 계정 잠김 보안 알림	구현됨·미실측	
+LK-03	잠금	sqlite,postgres	알던 기기(최근 성공)	오타 몇 번 후 성공	그 기기의 IP별 카운터만 초기화, 계정 전체 카운트는 유지	구현됨·미실측	
+LK-04	레이트리밋	sqlite,postgres	한 IP	1분에 로그인 11번	11번째 429 + Retry-After	구현됨·미실측	
+LK-05	레이트리밋	sqlite,postgres	발송 엔드포인트(재설정 메일 등)	한 IP에서 1시간에 11번	11번째 429 + Retry-After	구현됨·미실측	
+LK-06	레이트리밋	sqlite,postgres	한 이메일 주소	여러 IP에서 1시간에 재설정 메일 6번	6번째 429, RateLimit-* 헤더	구현됨·미실측	
+LK-07	레이트리밋	sqlite,postgres	network.clientIp=socket	X-Forwarded-For 를 바꿔 가며 로그인 시도	헤더 무시, 소켓 IP로 집계되어 한도에 걸림	구현됨·미실측	
+LK-08	레이트리밋	sqlite,postgres	production, 클라이언트 IP를 알 수 없음	요청	500 CLIENT_IP_UNAVAILABLE(모두 한 버킷으로 묶지 않음)	구현됨·미실측	
+LK-09	레이트리밋	sqlite,postgres	IPv6 클라이언트	같은 /64 안에서 주소를 바꿔 시도	한 출처로 집계	구현됨·미실측	
+SS-01	세션	sqlite,postgres	로그인된 기기 2대	비밀번호 변경	다른 기기 세션 종료, 보안 알림 1통	구현됨·미실측	
+SS-02	세션	sqlite,postgres	session.devices=single	다른 기기에서 로그인	기존 세션 종료	구현됨·미실측	
+SS-03	세션	sqlite,postgres	로그인 상태	비밀번호 재설정 완료	모든 세션 종료	구현됨·미실측	
+SS-04	세션	sqlite,postgres	session.bearer=yes	Authorization: Bearer 토큰으로 요청	인증됨, 로그인 응답에 set-auth-token	구현됨·미실측	
+PW-01	비밀번호 재설정	sqlite,postgres	가입된 이메일	재설정 요청	재설정 메일 1통, 없는 이메일도 같은 응답	구현됨·미실측	
+PW-02	비밀번호 재설정	sqlite,postgres	PW-01 링크	새 비밀번호 설정	비밀번호 변경, 모든 세션 종료, 보안 알림	구현됨·미실측	
+PW-03	비밀번호 재설정	sqlite,postgres	PW-01 링크 사용 완료	같은 링크 다시 사용	거절	구현됨·미실측	
+PL-01	매직 링크	sqlite,postgres	signIn.magicLink=yes	링크 요청 → 링크 열기	로그인 세션, 링크는 1회용	구현됨·미실측	
+PL-02	이메일 코드	sqlite,postgres	signIn.emailOtp=yes	코드 요청 → 6자리 입력	로그인, 코드 5분 유효, 3번 틀리면 무효, 저장은 해시	구현됨·미실측	
+PL-03	SMS 코드	sqlite,postgres	signIn.phone=yes	번호에 코드 발송 → 입력	E.164(국내 앞자리 0 제거)로 한 번호 한 신원, 5분·3회, 사이트 전체 시간당 100건 상한	구현됨·미실측	
+PL-04	SMS 코드	sqlite,postgres	phone.allowedCountries 설정	허용 안 된 국가 번호로 요청	발송 거절	구현됨·미실측	
+OA-01	소셜 로그인	sqlite,postgres	signIn.oauth=google	처음 구글 로그인	계정 생성, 세션	구현됨·미실측	
+OA-02	계정 연결	sqlite,postgres	linking.mode=verified_only, 같은 이메일의 로컬 계정(인증됨), 구글도 인증됨	구글 로그인	기존 계정에 연결	구현됨·미실측	
+OA-03	계정 연결	sqlite,postgres	OA-02와 같지만 로컬 계정 미인증	구글 로그인	연결하지 않음(탈취 방지)	구현됨·미실측	
+MG-01	이전	sqlite,postgres	Supabase 내보내기(bcrypt 해시)	boilauth import	사용자와 해시 적재, 비밀번호 변경 아님(알림 없음)	구현됨·미실측	
+MG-02	이전	sqlite,postgres	MG-01 사용자	예전 비밀번호로 로그인	로그인 성공, 해시를 argon2id로 교체(투명 재해시)	구현됨·미실측	
+MG-03	이전	sqlite,postgres	Firebase 내보내기(scrypt), FIREBASE_SIGNER_KEY 설정	import 후 예전 비밀번호로 로그인	로그인 성공, argon2id로 교체	구현됨·미실측	
+MG-04	이전	sqlite,postgres	Auth0 / generic CSV(bcrypt·argon2id)	import 후 로그인	로그인 성공, argon2id로 교체	구현됨·미실측	
+MG-05	이전	sqlite,postgres	가져올 사용자와 같은 이메일의 기존 계정	import	양쪽 모두 인증된 이메일일 때만 병합, 아니면 건너뛰고 보고	구현됨·미실측	
+MG-06	이전	sqlite,postgres	sourceVerifiedEmail=no	import 후 로그인	verification=optional 기본값이라 403 없이 로그인	구현됨·미실측	
+MF-01	2단계 인증	sqlite,postgres	mfa.mode=totp_optional, TOTP 등록한 사용자	비밀번호 로그인	TOTP 요구, 맞는 코드로 세션	구현됨·미실측	
+MF-02	2단계 인증	sqlite,postgres	MF-01	백업 코드 사용	1회 사용 후 무효, 10개 중 하나 차감	구현됨·미실측	
+MF-03	2단계 인증	sqlite,postgres	mfa.allSignIns=yes, TOTP 사용자	매직 링크/소셜 로그인	twoFactorRedirect, TOTP 또는 백업 코드로만 완료(이메일 코드는 403)	구현됨·미실측	
+MF-04	2단계 인증	sqlite,postgres	mfa.mode=totp_required_admin, TOTP 없는 관리자	관리자 엔드포인트 호출	403 MFA_REQUIRED	구현됨·미실측	
+RL-01	역할	sqlite,postgres	roles.mode=admin, 일반 사용자	/admin/* 호출	세션 없음 401, 역할 없음 403(hideAdmin=yes면 404)	구현됨·미실측	
+RL-02	역할	sqlite,postgres	roles.mode=organizations, orgCreation=admin_only	일반 사용자가 조직 생성	거절	구현됨·미실측	
+RL-03	역할	sqlite,postgres	roles.mode=custom	permissions.ts 에 없는 권한으로 요청	거절	구현됨·미실측	
+NT-01	보안 알림	sqlite,postgres	notify.newDevice=yes	90일간 못 본 IP에서 로그인	새 기기 알림 1통, 첫 로그인은 알림 없음	구현됨·미실측	
+NT-02	보안 알림	sqlite,postgres	기본	2단계 인증 켜기/끄기, 번호 연결	각각 알림 1통(kind 구분)	구현됨·미실측	
+DL-01	탈퇴	sqlite,postgres	deletion.mode=hard, 비밀번호 있는 사용자	비밀번호 확인 후 탈퇴	사용자 행 삭제, 세션 종료	구현됨·미실측	
+DL-02	탈퇴	sqlite,postgres	비밀번호 없는 사용자(소셜)	로그인 10분 넘은 세션으로 탈퇴	거절(재인증 필요)	구현됨·미실측	
+DL-03	탈퇴	sqlite,postgres	deletion.mode=soft	탈퇴	deletedAt 기록, 세션 종료, 로그인 거절, purge-deleted 로 나중에 삭제	구현됨·미실측	
+DL-04	탈퇴	sqlite,postgres	deletion.records=anonymize	탈퇴	행은 남고 이메일 deleted+<id>@deleted.invalid, 이름·로그인 연결 제거(결제 기록의 사용자 ID 유지)	구현됨·미실측	
+DL-05	탈퇴	sqlite,postgres	deletion.guard=yes, 앱이 거부	탈퇴	409 + 앱 코드, 아무것도 안 지움	구현됨·미실측	
+DL-06	탈퇴	sqlite,postgres	조직의 마지막 소유자, 다른 멤버 있음, lastOrgOwner=block	탈퇴	409 ORG_OWNER_TRANSFER_REQUIRED	구현됨·미실측	
+DL-07	탈퇴	sqlite,postgres	관리자가 /admin/remove-user	사용자 제거	같은 규칙(거부 409, 조직 규칙, soft/anonymize) 적용	구현됨·미실측	
+DL-08	데이터 내보내기	sqlite,postgres	deletion.export=yes	GET /boilauth/export-account	본인 데이터 JSON	구현됨·미실측	
