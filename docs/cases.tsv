@@ -35,13 +35,39 @@ MG-03	이전	sqlite,postgres	Firebase 내보내기(scrypt), FIREBASE_SIGNER_KEY 
 MG-04	이전	sqlite,postgres	Auth0 / generic CSV(bcrypt·argon2id)	import 후 로그인	로그인 성공, argon2id로 교체	구현됨·미실측	
 MG-05	이전	sqlite,postgres	가져올 사용자와 같은 이메일의 기존 계정	import	양쪽 모두 인증된 이메일일 때만 병합, 아니면 건너뛰고 보고	구현됨·미실측	
 MG-06	이전	sqlite,postgres	sourceVerifiedEmail=no	import 후 로그인	verification=optional 기본값이라 403 없이 로그인	구현됨·미실측	
+AC-01	계정 관리	sqlite,postgres	로그인 사용자	현재 비밀번호를 틀리게 넣고 비밀번호 변경	거절, 비밀번호 그대로	구현됨·미실측	
+AC-02	계정 관리	sqlite,postgres	로그인 사용자	이메일 변경 요청	새 이메일로 확인 메일, 확인 전까지 기존 이메일 유지	미실측	
+SS-05	세션	sqlite,postgres	로그인된 기기 3대	세션 목록 조회 후 한 기기 세션만 종료	그 기기만 로그아웃, 나머지 유지	미실측	
+OA-04	계정 연결	sqlite,postgres	구글만 연결된 계정(비밀번호 없음)	구글 연결 해제	거절(마지막 로그인 수단)	미실측	
+UN-01	아이디 로그인	sqlite,postgres	signIn.username=yes	전각 ａｄｍｉｎ 또는 예약어로 아이디 등록	NFKC 정규화 후 예약어·중복 검사로 거절	구현됨·미실측	
+UN-02	아이디 로그인	sqlite,postgres	signIn.username=yes	아이디 사용 가능 여부 조회를 한 IP에서 1시간에 31번	31번째 429	구현됨·미실측	
+PL-05	SMS 코드	sqlite,postgres	signIn.phone=yes, 인증된 번호와 비밀번호가 있는 계정	번호 + 비밀번호로 로그인	로그인. 미인증 번호는 거절	구현됨·미실측	
 MF-01	2단계 인증	sqlite,postgres	mfa.mode=totp_optional, TOTP 등록한 사용자	비밀번호 로그인	TOTP 요구, 맞는 코드로 세션	구현됨·미실측	
 MF-02	2단계 인증	sqlite,postgres	MF-01	백업 코드 사용	1회 사용 후 무효, 10개 중 하나 차감	구현됨·미실측	
 MF-03	2단계 인증	sqlite,postgres	mfa.allSignIns=yes, TOTP 사용자	매직 링크/소셜 로그인	twoFactorRedirect, TOTP 또는 백업 코드로만 완료(이메일 코드는 403)	구현됨·미실측	
 MF-04	2단계 인증	sqlite,postgres	mfa.mode=totp_required_admin, TOTP 없는 관리자	관리자 엔드포인트 호출	403 MFA_REQUIRED	구현됨·미실측	
-RL-01	역할	sqlite,postgres	roles.mode=admin, 일반 사용자	/admin/* 호출	세션 없음 401, 역할 없음 403(hideAdmin=yes면 404)	구현됨·미실측	
-RL-02	역할	sqlite,postgres	roles.mode=organizations, orgCreation=admin_only	일반 사용자가 조직 생성	거절	구현됨·미실측	
-RL-03	역할	sqlite,postgres	roles.mode=custom	permissions.ts 에 없는 권한으로 요청	거절	구현됨·미실측	
+RL-01	역할(관리자)	sqlite,postgres	roles.mode=admin	새 사용자 가입	기본 역할 user	구현됨·미실측	
+RL-02	역할(관리자)	sqlite,postgres	로그인한 사용자 2명	npx boilauth grant-role <이메일> admin	역할 admin, 그 사용자의 세션 전부 삭제(다시 로그인해야 새 역할)	구현됨·미실측	grantRole
+RL-03	역할(관리자)	sqlite,postgres	관리자, 일반 사용자, 비로그인	GET /admin/list-users	관리자 200, 일반 403, 비로그인 401. hideAdmin=yes 면 일반·비로그인 모두 404	구현됨·미실측	
+RL-04	역할(관리자)	sqlite,postgres	관리자	HTTP로 다른 사용자 역할 변경(/admin/set-role)	역할 변경, 그 사용자의 세션 전부 삭제(grant-role 과 같게)	미실측	HTTP 경로가 세션을 지우는지 확인 필요
+RL-05	역할(관리자)	sqlite,postgres	일반 사용자	자기 역할을 admin 으로 바꾸려 함(/update-user, /admin/set-role)	거절, 역할 그대로	미실측	
+RL-06	역할(관리자)	sqlite,postgres	관리자	사용자 차단(/admin/ban-user)	대상 세션 종료, 로그인 거절. 해제(/admin/unban-user) 후 로그인 가능	미실측	
+RL-07	역할(관리자)	sqlite,postgres	관리자	사용자로 대리 로그인(/admin/impersonate-user)	대리 세션은 표시가 남고 관리자가 종료할 수 있다. 관리자를 대리할 수는 없다	미실측	
+RL-08	역할(관리자)	sqlite,postgres	mfa.mode=totp_required_admin, TOTP 등록한 관리자	TOTP 없이 로그인한 세션으로 관리자 엔드포인트	403 MFA_REQUIRED. TOTP 통과 세션은 허용	구현됨·미실측	MF-04 와 함께
+RL-09	역할(커스텀)	sqlite,postgres	roles.mode=custom, roles.custom=admin,editor,user, permissions.ts 에 editor 권한 정의	editor 가 허용된 동작 / 허용 안 된 동작	허용 동작 200, 나머지 403. user 는 editor 동작 403	구현됨·미실측	permissions.ts
+RL-10	역할(커스텀)	sqlite,postgres	roles.mode=custom	grant-role 로 목록에 없는 역할(root) 부여	거절	미실측	grantRole 은 형식만 검사함, 확인 필요
+OR-01	조직	sqlite,postgres	roles.mode=organizations, orgCreation=any_user	사용자가 조직 생성	조직 생성, 만든 사람이 owner	구현됨·미실측	
+OR-02	조직	sqlite,postgres	orgCreation=admin_only	일반 사용자가 조직 생성	거절. 관리자는 가능	구현됨·미실측	
+OR-03	조직	sqlite,postgres	owner	이메일로 초대(역할 member)	초대 대기 상태, 초대 메일 1통(/accept-invitation/<id>)	구현됨·미실측	
+OR-04	조직	sqlite,postgres	OR-03 초대, 초대받은 이메일로 로그인	초대 수락	member 로 가입, 초대 완료	구현됨·미실측	
+OR-05	조직	sqlite,postgres	OR-03 초대	다른 이메일 계정이 수락 시도	거절	미실측	
+OR-06	조직	sqlite,postgres	OR-03 초대 만료 또는 취소	수락 시도	거절	미실측	
+OR-07	조직	sqlite,postgres	member 역할	다른 사람 초대 / 멤버 역할 변경	거절. admin·owner 는 가능	미실측	
+OR-08	조직	sqlite,postgres	owner	멤버 역할 변경(/organization/update-member-role)	변경 반영	구현됨·미실측	
+OR-09	조직	sqlite,postgres	admin 역할 멤버	owner 를 내보내거나 owner 역할을 바꾸려 함	거절	미실측	
+OR-10	조직	sqlite,postgres	두 조직의 멤버	활성 조직 전환(set-active)	세션의 활성 조직 변경. 멤버가 아닌 조직으로는 거절	미실측	
+OR-11	조직	sqlite,postgres	멤버	조직에서 제거됨	그 조직 접근 거절, 활성 조직이었으면 해제	미실측	
+OR-12	조직	sqlite,postgres	마지막 owner, 다른 멤버 있음, lastOrgOwner=transfer_to_oldest_admin	owner 탈퇴	가장 오래된 admin 이 owner 로. admin 이 없으면 409	구현됨·미실측	DL-06 과 짝
 NT-01	보안 알림	sqlite,postgres	notify.newDevice=yes	90일간 못 본 IP에서 로그인	새 기기 알림 1통, 첫 로그인은 알림 없음	구현됨·미실측	
 NT-02	보안 알림	sqlite,postgres	기본	2단계 인증 켜기/끄기, 번호 연결	각각 알림 1통(kind 구분)	구현됨·미실측	
 DL-01	탈퇴	sqlite,postgres	deletion.mode=hard, 비밀번호 있는 사용자	비밀번호 확인 후 탈퇴	사용자 행 삭제, 세션 종료	구현됨·미실측	
