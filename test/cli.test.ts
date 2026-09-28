@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +10,17 @@ import { signIn } from "./helpers.js";
 
 const SRC = fileURLToPath(new URL("../src/index.ts", import.meta.url));
 const FIX = fileURLToPath(new URL("../fixtures/", import.meta.url));
+const CLI = fileURLToPath(new URL("../bin/boilauth.mjs", import.meta.url));
+const PACKAGE_METADATA: unknown = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+if (
+  typeof PACKAGE_METADATA !== "object" ||
+  PACKAGE_METADATA === null ||
+  !("version" in PACKAGE_METADATA) ||
+  typeof PACKAGE_METADATA.version !== "string"
+) {
+  throw new TypeError("package.json must contain a string version");
+}
+const PACKAGE_VERSION = PACKAGE_METADATA.version;
 
 function config(dir: string, name: string, db: string) {
   const p = join(dir, name);
@@ -27,6 +39,13 @@ export default createBoilAuth({
   );
   return p;
 }
+
+test("CLI: --version prints the package.json version and exits successfully", () => {
+  const result = spawnSync(process.execPath, [CLI, "--version"], { encoding: "utf8" });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), PACKAGE_VERSION);
+});
 
 test("CLI: init, migrate, import ×3, grant-role, export-sqlite, import-sqlite into a fresh DB", async () => {
   const dir = mkdtempSync(join(tmpdir(), "boilauth-cli-"));

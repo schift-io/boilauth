@@ -1,6 +1,6 @@
 {
   "name": "boilauth",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Migration-friendly auth kit on Better Auth: safe presets, import Supabase/Firebase/Auth0 users with their password hashes, versioned schema, SQLite export.",
   "license": "MIT",
   "homepage": "https://github.com/schift-io/boilauth#readme",

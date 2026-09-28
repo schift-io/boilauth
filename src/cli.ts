@@ -15,12 +15,13 @@
  *   boilauth import-sqlite <in.db>                  copy rows from a boilauth SQLite file
  *   boilauth schema                                 print schema and enabled modules as JSON
  *   boilauth check-updates --feed <url>             opt-in advisory check
+ *   boilauth --version | -v                         print the installed package version
  *
  * All commands except init read ./boilauth.config.ts (or .mjs, or --config),
  * whose default export is the object returned by createBoilAuth(). ./.env is
  * loaded first when present; variables already set in the shell win.
  */
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -37,8 +38,19 @@ import { parseOverride, runWizard } from "./wizard/run.js";
 import { planProject, writeProject } from "./generate/project.js";
 
 const ANSWERS_FILE = "boilauth.answers.json";
+const USAGE =
+  "usage: boilauth <init|migrate|import|grant-role|purge-deleted|export-sqlite|import-sqlite|schema|check-updates>\n       boilauth --version | -v";
+const PACKAGE_METADATA: unknown = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+if (
+  typeof PACKAGE_METADATA !== "object" ||
+  PACKAGE_METADATA === null ||
+  !("version" in PACKAGE_METADATA) ||
+  typeof PACKAGE_METADATA.version !== "string"
+) {
+  throw new TypeError("package.json must contain a string version");
+}
 
-export const VERSION = "0.3.0";
+export const VERSION = PACKAGE_METADATA.version;
 
 function defaultConfig(): string {
   return existsSync("boilauth.config.ts") ? "boilauth.config.ts" : "boilauth.config.mjs";
@@ -79,8 +91,13 @@ export async function main(argv: string[], log: (s: string) => void = console.lo
       "key-id": { type: "string" },
       feed: { type: "string" },
       force: { type: "boolean", default: false },
+      version: { type: "boolean", short: "v", default: false },
     },
   });
+  if (values.version) {
+    log(VERSION);
+    return 0;
+  }
   const [cmd, a, b] = positionals;
 
   switch (cmd) {
@@ -159,7 +176,7 @@ export async function main(argv: string[], log: (s: string) => void = console.lo
       return hits.some((h) => h.severity === "high" || h.severity === "critical") ? 2 : 0;
     }
     default:
-      log("usage: boilauth <init|migrate|import|grant-role|purge-deleted|export-sqlite|import-sqlite|schema|check-updates>");
+      log(USAGE);
       return cmd ? 1 : 0;
   }
 }
