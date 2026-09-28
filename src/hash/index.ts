@@ -36,10 +36,20 @@ const ARGON2ID = 2; // @node-rs/argon2 Algorithm.Argon2id (const enum, not impor
 
 export type HashKind = "argon2id" | "bcrypt" | "firebase-scrypt" | "unknown";
 
+const ARGON2ID_ENCODING = /^\$argon2id\$v=19\$m=\d+,t=\d+,p=\d+\$[A-Za-z0-9+/]+={0,2}\$[A-Za-z0-9+/]+={0,2}$/;
+const BCRYPT_ENCODING = /^\$2[aby]\$(?:0[4-9]|[12]\d|3[01])\$[./A-Za-z0-9]{53}$/;
+
 export function hashKind(stored: string): HashKind {
-  if (stored.startsWith("$argon2id$")) return "argon2id";
-  if (/^\$2[aby]\$\d{2}\$/.test(stored)) return "bcrypt";
-  if (stored.startsWith(FIREBASE_PREFIX)) return "firebase-scrypt";
+  if (ARGON2ID_ENCODING.test(stored)) {
+    try {
+      parseOptions(stored);
+      return "argon2id";
+    } catch {
+      return "unknown";
+    }
+  }
+  if (BCRYPT_ENCODING.test(stored)) return "bcrypt";
+  if (stored.startsWith(FIREBASE_PREFIX) && decodeFirebaseHash(stored)) return "firebase-scrypt";
   return "unknown";
 }
 
@@ -66,12 +76,22 @@ export function createPasswordHasher(opts: PasswordHasherOptions = {}): Password
 
     async verify({ hash, password }) {
       switch (hashKind(hash)) {
-        case "argon2id":
-          return argonVerify(hash, password);
-        case "bcrypt":
+        case "argon2id": {
+          try {
+            return await argonVerify(hash, password);
+          } catch {
+            return false;
+          }
+        }
+        case "bcrypt": {
           // bcrypt only reads the first 72 bytes; the original provider had the
           // same limit, so behaviour is identical to the source system.
-          return bcrypt.compare(password, hash);
+          try {
+            return await bcrypt.compare(password, hash);
+          } catch {
+            return false;
+          }
+        }
         case "firebase-scrypt": {
           const decoded = decodeFirebaseHash(hash);
           if (!decoded) return false;

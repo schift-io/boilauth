@@ -89,6 +89,72 @@ test("generic JSON export reads the same columns", () => {
   assert.deepEqual([r.sourceId, r.emailVerified, r.passwordHash], ["7", true, null]);
 });
 
+test("MG-07: generic CSV rejects a truncated argon2id hash without storing the user", async () => {
+  const records = parseGenericExport(
+    "id,email,email_verified,password_hash,name,created_at\n" +
+      "bad-argon,broken@example.com,true,$argon2id$v=19$m=8192,t=1,p=1$c2FsdA$YWJj,Broken,",
+  );
+  assert.equal(records[0]?.passwordHash, "$argon2id$v=19$m=8192", "the unquoted CSV field is truncated at its first comma");
+
+  const auth = await makeAuth();
+  const report = await importUsers(auth, "generic", records);
+  assert.deepEqual(report.outcomes, [
+    {
+      sourceId: "bad-argon",
+      email: "broken@example.com",
+      result: "skipped",
+      reason: "unsupported_hash",
+    },
+  ]);
+  assert.equal(await storedHash(auth, "broken@example.com"), null);
+  const ctx = await auth.$context;
+  assert.equal(await ctx.internalAdapter.findUserByEmail("broken@example.com"), null);
+});
+
+test("MG-07: every importer rejects incomplete supported hash encodings", async () => {
+  const cases: [ImportSource, string, string][] = [
+    ["supabase", "bad-supabase@example.com", "$2a$10$short"],
+    ["firebase", "bad-firebase@example.com", "$firebase-scrypt$v=1$k=sample-project,r=8,m=14$AA==$Bw==$"],
+    ["auth0", "bad-auth0@example.com", "$2b$12$short"],
+    ["generic", "bad-generic@example.com", "$argon2id$v=19$m=8192"],
+  ];
+  const auth = await makeAuth();
+
+  for (const [source, email, passwordHash] of cases) {
+    const report = await importUsers(auth, source, [
+      { sourceId: `bad-${source}`, email, emailVerified: true, passwordHash },
+    ]);
+    assert.deepEqual(report.outcomes, [
+      { sourceId: `bad-${source}`, email, result: "skipped", reason: "unsupported_hash" },
+    ]);
+    assert.equal(await storedHash(auth, email), null);
+  }
+});
+
+test("MG-07: malformed stored hashes sign in as a wrong password", async () => {
+  const auth = await makeAuth();
+  await auth.api.signUpEmail({
+    body: { email: "corrupt@example.com", password: "a-long-password-1", name: "Corrupt" },
+  });
+  const ctx = await auth.$context;
+  const found = await ctx.internalAdapter.findUserByEmail("corrupt@example.com");
+  assert.ok(found);
+  const account = await ctx.internalAdapter.findCredentialAccount(found.user.id);
+  assert.ok(account);
+  const malformed = [
+    "$argon2id$v=19$m=8192",
+    "$2b$10$short",
+    "$firebase-scrypt$v=1$k=sample-project,r=8,m=14$AA==$Bw==$",
+  ];
+
+  for (const [index, passwordHash] of malformed.entries()) {
+    await ctx.internalAdapter.updateAccount(account.id, { password: passwordHash });
+    const result = await signIn(auth, "corrupt@example.com", "a-long-password-1", `198.51.100.${70 + index}`);
+    assert.equal(result.status, 401, passwordHash);
+    assert.equal(result.body?.code, "INVALID_EMAIL_OR_PASSWORD", passwordHash);
+  }
+});
+
 test("re-running an import is idempotent", async () => {
   const auth = await makeAuth();
   const records = parseAuth0Export(fixture("auth0-users.ndjson"));

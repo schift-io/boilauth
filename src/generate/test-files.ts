@@ -346,6 +346,9 @@ function rolesBlock(a: Answers): string {
       return tpl("roles-admin", { ADMIN_ALLOWED: allowed, ...adminDenied(a) });
     case "custom": {
       const extra = a.roles.custom.filter((r) => r !== "admin" && r !== "user");
+      let unknownRole = "root";
+      let unknownRoleIndex = 0;
+      while (a.roles.custom.includes(unknownRole)) unknownRole = `unconfigured_${unknownRoleIndex++}`;
       const checks = extra
         .map(
           (r) => `  const { email: ${ident(r)} } = await h.newUser(auth, "rc");
@@ -355,7 +358,11 @@ function rolesBlock(a: Answers): string {
 `,
         )
         .join("");
-      return tpl("roles-admin", { ADMIN_ALLOWED: allowed, ...adminDenied(a) }) + "\n" + tpl("roles-custom", { ROLES: a.roles.custom.join(", "), CUSTOM_ROLE_CHECKS: checks });
+      return (
+        tpl("roles-admin", { ADMIN_ALLOWED: allowed, ...adminDenied(a) }) +
+        "\n" +
+        tpl("roles-custom", { ROLES: a.roles.custom.join(", "), UNKNOWN_ROLE: JSON.stringify(unknownRole), CUSTOM_ROLE_CHECKS: checks })
+      );
     }
     case "organizations": {
       const adminOnly = a.roles.orgCreation === "admin_only";

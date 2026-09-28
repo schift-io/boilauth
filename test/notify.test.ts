@@ -106,3 +106,18 @@ test("F9: sign-in from a new device sends a notice when switched on; not by defa
     assert.deepEqual(notices(mail).map((m) => m.kind), on ? ["security.new_device"] : [], `newDevice ${on}`);
   }
 });
+
+test("NT-01: dormant account sign-in from an unseen IP sends one new-device notice", async () => {
+  let time = new Date("2026-01-01T00:00:00Z").getTime();
+  const { auth, mail } = await setup({
+    now: () => new Date(time),
+    securityNotices: { newDevice: true },
+  });
+
+  assert.equal((await signIn(auth, "n@example.com", "a-long-password-1", "203.0.113.60")).status, 200);
+  assert.deepEqual(notices(mail), [], "the first sign-in ever stays silent");
+
+  time += (PRESETS.lockout.knownSourceDays + 1) * 86_400_000;
+  assert.equal((await signIn(auth, "n@example.com", "a-long-password-1", "198.51.100.61")).status, 200);
+  assert.deepEqual(notices(mail).map((m) => m.kind), ["security.new_device"]);
+});

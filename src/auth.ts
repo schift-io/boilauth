@@ -20,7 +20,7 @@ import { CLIENT_IP_HEADER, withClientIp, type ClientIpConfig } from "./modules/c
 import { mfaOnAllSignIns, withoutTokenOnChallenge } from "./modules/mfa-all.js";
 import { knownPathMatcher, withKnownPaths } from "./modules/known-paths.js";
 import { paramTemplates, templateRateStorage, type RateStorage, type TemplateStorageLink } from "./modules/rate-key.js";
-import { DEFAULT_SECURITY_NOTICES, notifier, securityNotices, type SecurityNotices } from "./modules/notify.js";
+import { changeEmailDetails, DEFAULT_SECURITY_NOTICES, notifier, securityNotices, type SecurityNotices } from "./modules/notify.js";
 
 export const PRESETS = {
   minPasswordLength: 12, // ASVS 4.0.3 2.1.1
@@ -49,7 +49,7 @@ export interface EmailMessage {
   to: string;
   subject: string;
   text: string;
-  /** Set on security notices (security.password_changed, ...), so a sender can use its own template. */
+  /** Set on email-change verification and security notices, so a sender can use its own template. */
   kind?: string;
 }
 
@@ -77,8 +77,8 @@ export interface BoilAuthOptions {
   /** Sends verification and password-reset mail. Without it neither mail goes out. */
   sendEmail?: (msg: EmailMessage) => Promise<void>;
   /**
-   * Security notices through sendEmail (password changed, two-factor changed, account-wide lock,
-   * sign-in from a new device). Default: all on except newDevice.
+   * Security notices through sendEmail (password or email changed, two-factor changed,
+   * account-wide lock, sign-in from a new device). Default: all on except newDevice.
    */
   securityNotices?: Partial<SecurityNotices>;
   /** OAuth identity with an existing email: link when both sides are verified, or never. */
@@ -159,8 +159,13 @@ export function boilAuthOptions(o: BoilAuthOptions) {
   const sendVerification =
     extra.emailVerification?.sendVerificationEmail ??
     (send
-      ? async ({ user, url }: { user: User; url: string }) =>
-          send({ to: user.email, subject: "Verify your email", text: url })
+      ? async ({ user, url, token }: { user: User; url: string; token: string }) =>
+          send({
+            to: user.email,
+            subject: "Verify your email",
+            text: url,
+            ...(changeEmailDetails(token) ? { kind: "email.change_verification" } : {}),
+          })
       : undefined);
   const sendReset =
     extra.emailAndPassword?.sendResetPassword ??
@@ -208,6 +213,10 @@ export function boilAuthOptions(o: BoilAuthOptions) {
     emailVerification: {
       ...(sendVerification ? { sendVerificationEmail: sendVerification, sendOnSignUp: true } : {}),
       ...extra.emailVerification,
+    },
+    user: {
+      ...extra.user,
+      changeEmail: { enabled: true, ...extra.user?.changeEmail },
     },
     ...(o.username && usernameChecks === 0 ? { disabledPaths: [...(extra.disabledPaths ?? []), "/is-username-available"] } : {}),
     session: {

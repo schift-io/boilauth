@@ -13,3 +13,13 @@ test("roles = custom ({{ROLES}}): permissions come from src/permissions.ts", { s
   await boil.grantRole(auth, admin, "admin");
   assert.equal(await can(admin, "delete"), true);
 {{CUSTOM_ROLE_CHECKS}}});
+
+test("RL-10: grant-role refuses a role outside {{ROLES}} without side effects", { skip: h.SKIP }, async () => {
+  const auth = await h.makeAuth();
+  const { email, jar } = await h.newUser(auth, "rr");
+  await assert.rejects(boil.grantRole(auth, email, {{UNKNOWN_ROLE}}), /not configured/);
+  const ctx = await auth.$context;
+  const row = await ctx.adapter.findOne<{ role: string }>({ model: "user", where: [{ field: "email", value: email }] });
+  assert.equal(row?.role, "user");
+  assert.ok(await h.currentSession(auth, jar), "a refused role change deleted the user's session");
+});

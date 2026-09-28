@@ -84,6 +84,8 @@ export interface EncodedFirebaseHash {
 }
 
 const SAFE = /^[A-Za-z0-9+/=_-]*$/;
+const KEY_ID = /^[A-Za-z0-9_-]+$/;
+const BASE64_FIELD = /^[A-Za-z0-9+/_-]+={0,2}$/;
 
 export function encodeFirebaseHash(e: EncodedFirebaseHash): string {
   for (const v of [e.keyId, e.salt, e.saltSeparator, e.hash]) {
@@ -98,9 +100,25 @@ export function decodeFirebaseHash(stored: string): EncodedFirebaseHash | null {
   if (!stored.startsWith(FIREBASE_PREFIX)) return null;
   const parts = stored.slice(FIREBASE_PREFIX.length).split("$");
   if (parts.length !== 5 || parts[0] !== "v=1") return null;
-  const kv = Object.fromEntries(parts[1].split(",").map((p) => p.split("=", 2) as [string, string]));
-  const rounds = Number(kv.r);
-  const memCost = Number(kv.m);
-  if (!kv.k || !Number.isInteger(rounds) || !Number.isInteger(memCost)) return null;
-  return { keyId: kv.k, rounds, memCost, salt: parts[2], saltSeparator: parts[3], hash: parts[4] };
+  const params = /^k=([^,]+),r=(\d+),m=(\d+)$/.exec(parts[1]);
+  if (!params) return null;
+  const [, keyId, roundsText, memCostText] = params;
+  const rounds = Number(roundsText);
+  const memCost = Number(memCostText);
+  const [salt, saltSeparator, hash] = parts.slice(2);
+  if (
+    !KEY_ID.test(keyId) ||
+    !Number.isSafeInteger(rounds) ||
+    rounds < 1 ||
+    rounds > 64 ||
+    !Number.isSafeInteger(memCost) ||
+    memCost < 1 ||
+    memCost > 20 ||
+    !BASE64_FIELD.test(salt) ||
+    !BASE64_FIELD.test(saltSeparator) ||
+    !BASE64_FIELD.test(hash)
+  ) {
+    return null;
+  }
+  return { keyId, rounds, memCost, salt, saltSeparator, hash };
 }

@@ -4,6 +4,7 @@
  *
  *   security.password_changed  change, reset or set password on a user route
  *                              (not the transparent rehash at sign-in, not imports)
+ *   security.email_changed     verified email change (sent to the old address)
  *   security.mfa_changed       two-factor turned on or off
  *   security.account_locked    the account-wide lock engaged (see the lockout)
  *   security.new_device        a successful sign-in from a source not seen before
@@ -18,6 +19,7 @@ import type { EmailMessage } from "../auth.js";
 
 export interface SecurityNotices {
   passwordChanged: boolean;
+  emailChanged: boolean;
   mfaChanged: boolean;
   accountLocked: boolean;
   newDevice: boolean;
@@ -25,10 +27,18 @@ export interface SecurityNotices {
   phoneChanged: boolean;
 }
 
-export const DEFAULT_SECURITY_NOTICES: SecurityNotices = { passwordChanged: true, mfaChanged: true, accountLocked: true, newDevice: false, phoneChanged: true };
+export const DEFAULT_SECURITY_NOTICES: SecurityNotices = {
+  passwordChanged: true,
+  emailChanged: true,
+  mfaChanged: true,
+  accountLocked: true,
+  newDevice: false,
+  phoneChanged: true,
+};
 
 export type NoticeKind =
   | "security.password_changed"
+  | "security.email_changed"
   | "security.mfa_changed"
   | "security.account_locked"
   | "security.new_device"
@@ -42,12 +52,40 @@ const PASSWORD_PATHS = new Set([
   "/phone-number/reset-password",
 ]);
 
-export function noticeMail(kind: NoticeKind, to: string, detail: { enabled?: boolean; lockMinutes?: number } = {}): EmailMessage {
+type NoticeDetail = { enabled?: boolean; lockMinutes?: number; to?: string };
+
+export function changeEmailDetails(token: string): { readonly oldEmail: string; readonly newEmail: string } | null {
+  const payload = token.split(".")[1];
+  if (!payload) return null;
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      !("requestType" in parsed) ||
+      parsed.requestType !== "change-email-verification" ||
+      !("email" in parsed) ||
+      typeof parsed.email !== "string" ||
+      !("updateTo" in parsed) ||
+      typeof parsed.updateTo !== "string"
+    ) {
+      return null;
+    }
+    return { oldEmail: parsed.email, newEmail: parsed.updateTo };
+  } catch (error) {
+    if (error instanceof SyntaxError) return null;
+    throw error;
+  }
+}
+
+export function noticeMail(kind: NoticeKind, to: string, detail: NoticeDetail = {}): EmailMessage {
   const when = new Date().toISOString();
   const tail = "If this was not you, reset your password now and contact support.";
   switch (kind) {
     case "security.password_changed":
       return { to, kind, subject: "Your password was changed", text: `The password for your account was changed at ${when}. ${tail}` };
+    case "security.email_changed":
+      return { to, kind, subject: "Your email address was changed", text: `The email address for your account was changed at ${when}. ${tail}` };
     case "security.mfa_changed":
       return {
         to,
@@ -71,12 +109,13 @@ export function noticeMail(kind: NoticeKind, to: string, detail: { enabled?: boo
   }
 }
 
-export type Notify = (kind: NoticeKind, userId: string, ctx: any, detail?: { enabled?: boolean; lockMinutes?: number }) => Promise<void>;
+export type Notify = (kind: NoticeKind, userId: string, ctx: any, detail?: NoticeDetail) => Promise<void>;
 
 /** Looks the user up and sends; errors are logged, never thrown. */
 export function notifier(send: ((m: EmailMessage) => Promise<void>) | undefined, flags: SecurityNotices): Notify {
   const on: Record<NoticeKind, boolean> = {
     "security.password_changed": flags.passwordChanged,
+    "security.email_changed": flags.emailChanged,
     "security.mfa_changed": flags.mfaChanged,
     "security.account_locked": flags.accountLocked,
     "security.new_device": flags.newDevice,
@@ -86,7 +125,8 @@ export function notifier(send: ((m: EmailMessage) => Promise<void>) | undefined,
     if (!send || !on[kind]) return;
     try {
       const user = await ctx.context.internalAdapter.findUserById(userId);
-      if (user?.email && !String(user.email).endsWith("@deleted.invalid")) await send(noticeMail(kind, user.email, detail));
+      const to = detail?.to ?? user?.email;
+      if (user && to && !String(to).endsWith("@deleted.invalid")) await send(noticeMail(kind, String(to), detail));
     } catch (e) {
       ctx.context.logger?.error?.(`boilauth: security notice ${kind} failed`, e);
     }
@@ -126,6 +166,7 @@ const ok = (ctx: Ctx) => {
 /** Password changes on user routes (not the rehash at sign-in, not imports) and two-factor changes. */
 export function securityNotices(notify: Notify): BetterAuthPlugin {
   const TARGET = Symbol("boilauth-password-target");
+  const EMAIL_CHANGE = Symbol("boilauth-email-change");
   return {
     id: "boilauth-security-notices",
     hooks: {
@@ -136,6 +177,18 @@ export function securityNotices(notify: Notify): BetterAuthPlugin {
             ctx.context[TARGET] = await passwordTarget(ctx);
           }),
         },
+        {
+          matcher: (ctx: Ctx) => ctx.path === "/verify-email",
+          handler: createAuthMiddleware(async (ctx: Ctx) => {
+            const token = typeof ctx.query?.token === "string" ? ctx.query.token : "";
+            const change = changeEmailDetails(token);
+            if (!change) return;
+            const found = await ctx.context.internalAdapter.findUserByEmail(change.oldEmail);
+            if (typeof found?.user?.id === "string") {
+              ctx.context[EMAIL_CHANGE] = { userId: found.user.id, oldEmail: change.oldEmail, newEmail: change.newEmail };
+            }
+          }),
+        },
       ],
       after: [
         {
@@ -144,6 +197,16 @@ export function securityNotices(notify: Notify): BetterAuthPlugin {
             // change/set password: the session is loaded only by the route's own middleware.
             const userId = ctx.context[TARGET] ?? (ctx.path === "/change-password" || ctx.path === "/set-password" ? ctx.context.session?.user?.id : null);
             if (userId && ok(ctx)) await notify("security.password_changed", userId, ctx);
+          }),
+        },
+        {
+          matcher: (ctx: Ctx) => ctx.path === "/verify-email",
+          handler: createAuthMiddleware(async (ctx: Ctx) => {
+            const change: { userId: string; oldEmail: string; newEmail: string } | undefined = ctx.context[EMAIL_CHANGE];
+            if (!change) return;
+            delete ctx.context[EMAIL_CHANGE];
+            const updated = await ctx.context.internalAdapter.findUserById(change.userId);
+            if (updated?.email === change.newEmail) await notify("security.email_changed", change.userId, ctx, { to: change.oldEmail });
           }),
         },
       ],

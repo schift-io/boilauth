@@ -90,6 +90,29 @@ test("CLI: init, migrate, import ×3, grant-role, export-sqlite, import-sqlite i
   }
 });
 
+test("RL-10: CLI grant-role refuses an unconfigured role without side effects", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "boilauth-cli-role-"));
+  try {
+    const cfg = config(dir, "roles.config.mjs", "roles.db");
+    assert.equal(await main(["migrate", "--config", cfg]), 0);
+    const auth = (await import(cfg)).default;
+    const email = "cli-role@example.com";
+    await auth.api.signUpEmail({ body: { email, password: "cli-role-password-1", name: "CLI Role" } });
+    assert.equal((await signIn(auth, email, "cli-role-password-1")).status, 200);
+    const ctx = await auth.$context;
+    const before = await ctx.internalAdapter.findUserByEmail(email);
+    const sessionsBefore = await ctx.adapter.findMany({ model: "session", where: [{ field: "userId", value: before.user.id }] });
+
+    await assert.rejects(main(["grant-role", email, "root", "--config", cfg]), /not configured/);
+
+    assert.equal((await ctx.internalAdapter.findUserByEmail(email)).user.role, "user");
+    const sessionsAfter = await ctx.adapter.findMany({ model: "session", where: [{ field: "userId", value: before.user.id }] });
+    assert.equal(sessionsAfter.length, sessionsBefore.length, "a refused CLI role change deleted sessions");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("CLI: check-updates only with an explicit feed; flags affected versions", async () => {
   const dir = mkdtempSync(join(tmpdir(), "boilauth-feed-"));
   try {

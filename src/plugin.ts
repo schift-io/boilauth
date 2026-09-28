@@ -41,6 +41,7 @@ import type { PasswordHasher } from "./hash/index.js";
 import { clientIpKeyOf } from "./modules/client-ip.js";
 import { consume, peek, reset } from "./modules/counter-store.js";
 import type { Notify } from "./modules/notify.js";
+import { findUnconfiguredRole, roleChangeUserId } from "./roles.js";
 
 export interface LockoutOptions {
   /** Wrong passwords per account per source before that source is locked. 0 turns lockout off. */
@@ -190,6 +191,13 @@ export function boilauthPlugin(opts: BoilauthPluginOptions) {
     hooks: {
       before: [
         {
+          matcher: (ctx) => ctx.path === "/admin/set-role",
+          handler: createAuthMiddleware(async (ctx) => {
+            const role = findUnconfiguredRole(ctx.context.options?.plugins, ctx.body?.role);
+            if (role !== null) throw APIError.from("BAD_REQUEST", { code: "ROLE_NOT_CONFIGURED", message: `Role "${role}" is not configured` });
+          }),
+        },
+        {
           // Username and phone sign-in skip the password hash when the account has no password or
           // (phone) does not exist, which tells those accounts apart by timing (audit F6/F16).
           matcher: (ctx) => ctx.path === SIGN_IN_USERNAME || ctx.path === SIGN_IN_PHONE,
@@ -223,6 +231,13 @@ export function boilauthPlugin(opts: BoilauthPluginOptions) {
         },
       ],
       after: [
+        {
+          matcher: (ctx) => ctx.path === "/admin/set-role",
+          handler: createAuthMiddleware(async (ctx) => {
+            const userId = typeof ctx.body?.userId === "string" ? ctx.body.userId : "";
+            if (userId && roleChangeUserId(ctx.context.returned) === userId) await ctx.context.internalAdapter.deleteUserSessions(userId);
+          }),
+        },
         {
           matcher: (ctx) => ctx.path === "/admin/set-user-password",
           handler: createAuthMiddleware(async (ctx) => {
@@ -266,10 +281,11 @@ export function boilauthPlugin(opts: BoilauthPluginOptions) {
               const u = ((await ia.findUserById(userId)) ?? {}) as LockFields;
               const t = now().getTime();
               const source = sourceOf(ctx);
-              const previous = knownList(u.knownSignInSources).filter((k) => t - k.t < opts.lockout.knownSourceDays * 86_400_000);
+              const recorded = knownList(u.knownSignInSources);
+              const previous = recorded.filter((k) => t - k.t < opts.lockout.knownSourceDays * 86_400_000);
               const known = [{ s: source, t }, ...previous.filter((k) => k.s !== source)].slice(0, MAX_KNOWN);
-              // The first sign-in ever is not a "new device"; a source missing from a non-empty list is.
-              if (previous.length && !previous.some((k) => k.s === source)) await opts.notify?.("security.new_device", userId, ctx);
+              // Only the first sign-in ever is exempt; aged history still proves this account has signed in before.
+              if (recorded.length && !previous.some((k) => k.s === source)) await opts.notify?.("security.new_device", userId, ctx);
               await ia.updateUser(userId, { knownSignInSources: JSON.stringify(known) });
               if (opts.lockout.maxFailures > 0) await reset(storageOf(ctx), ctx.context.adapter, lockKey(userId, source));
               const account = await ia.findCredentialAccount(userId);

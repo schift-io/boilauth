@@ -61,3 +61,15 @@ test("unknown formats are rejected", async () => {
   assert.equal(hashKind("5f4dcc3b5aa765d61d8327deb882cf99"), "unknown");
   assert.equal(await hasher.verify({ hash: "5f4dcc3b5aa765d61d8327deb882cf99", password: "password" }), false);
 });
+
+test("MG-07: incomplete supported hash encodings fail closed", async () => {
+  const malformed = [
+    "$argon2id$v=19$m=8192",
+    "$2y$10$short",
+    "$firebase-scrypt$v=1$k=sample-project,r=8,m=14$AA==$Bw==$",
+  ];
+  for (const hash of malformed) {
+    assert.equal(hashKind(hash), "unknown", hash);
+    assert.equal(await hasher.verify({ hash, password: "password" }), false, hash);
+  }
+});

@@ -147,7 +147,7 @@ export function authFile(a: Answers): string {
   if (a.mfa.mode !== "off" && !a.mfa.allSignIns) opts.push("mfaOnAllSignIns: false");
   if (!a.notify.securityChanges || a.notify.newDevice) {
     const on = a.notify.securityChanges;
-    opts.push(`securityNotices: { passwordChanged: ${on}, mfaChanged: ${on}, accountLocked: ${on}, newDevice: ${a.notify.newDevice && a.signIn.emailPassword}, phoneChanged: ${on} }`);
+    opts.push(`securityNotices: { passwordChanged: ${on}, emailChanged: ${on}, mfaChanged: ${on}, accountLocked: ${on}, newDevice: ${a.notify.newDevice && a.signIn.emailPassword}, phoneChanged: ${on} }`);
   }
   const extraBetterAuth = oauth.includes("apple")
     ? '{ trustedOrigins: ["https://appleid.apple.com"], ...d.betterAuth }'
@@ -274,8 +274,9 @@ export function emailFile(): string {
   return `// Generated once by \`boilauth init\`. Yours to edit: connect your mail provider here.
 import type { EmailMessage } from "boilauth";
 
-// msg.kind is set on security notices (security.password_changed, security.mfa_changed,
-// security.account_locked, security.new_device) if you want your own templates for them.
+// msg.kind is set on email-change verification and security notices (email.change_verification,
+// security.password_changed, security.email_changed, security.mfa_changed,
+// security.account_locked, security.new_device, security.phone_changed) for custom templates.
 export async function sendEmail(msg: EmailMessage): Promise<void> {
   if (process.env.NODE_ENV === "production") {
     throw new Error("src/email.ts: connect a mail provider before production");
