@@ -10,7 +10,7 @@ upgraded to argon2id on that first login.
 - Engine: [Better Auth](https://better-auth.com) (sessions, cookies, origin checks, DB adapters).
   boilauth does not implement its own auth crypto; it composes argon2id
   (`@node-rs/argon2`), bcrypt (`bcryptjs`) and Node's built-in scrypt/AES.
-- Status: **0.3.0, pre-release.** On npm as `boilauth` (0.2.0 published; 0.3.0 not yet).
+- Status: **0.3.1, pre-release.** On npm as `boilauth`.
 - License: MIT.
 
 ## 5-minute start
